@@ -1,0 +1,11 @@
+---
+- name: Converge
+  hosts: all
+  vars:
+    # Restricted networks can set MOLECULE_DOCKER_MIRROR to a registry mirror.
+    observability_stack_docker_registry_mirrors: >-
+      {{ lookup('ansible.builtin.env', 'MOLECULE_DOCKER_MIRROR') | split(',') | select | list }}
+    observability_stack_env:
+      INSTANCE_NAME: molecule
+  roles:
+    - role: observability_stack

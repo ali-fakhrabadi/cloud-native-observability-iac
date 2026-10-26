@@ -1,0 +1,38 @@
+---
+# A drop-in in sshd_config.d is read before the rest of the main file, and for sshd the
+# first value of an option wins: these settings override distribution and cloud-init
+# defaults (for example 50-cloud-init.conf enabling passwords) without editing them.
+- name: Make sure the main configuration includes the drop-in directory first
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    line: Include /etc/ssh/sshd_config.d/*.conf
+    insertbefore: BOF
+  notify: Reload SSH
+
+- name: Create the privilege separation directory sshd needs to test its configuration
+  ansible.builtin.file:
+    path: /run/sshd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the SSH hardening drop-in
+  ansible.builtin.template:
+    src: sshd-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/00-hardening.conf
+    owner: root
+    group: root
+    mode: "0600"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload SSH
+
+- name: Test the complete SSH configuration before it is reloaded
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+
+- name: Keep the SSH server enabled and running
+  ansible.builtin.service:
+    name: ssh
+    enabled: true
+    state: started

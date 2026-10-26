@@ -1,0 +1,21 @@
+---
+- name: Restart Docker
+  ansible.builtin.service:
+    name: docker
+    state: restarted
+
+# SIGHUP where the service supports reloading, a restart elsewhere (the same as
+# `make reload`).
+- name: Reload Prometheus and Alertmanager
+  ansible.builtin.command:
+    cmd: docker compose -f docker-compose.observability.yml kill --signal SIGHUP prometheus alertmanager
+    chdir: "{{ observability_stack_dir }}"
+  changed_when: true
+  listen: Apply observability configuration
+
+- name: Restart the services without a reload signal
+  ansible.builtin.command:
+    cmd: docker compose -f docker-compose.observability.yml restart loki alloy grafana alert-sink
+    chdir: "{{ observability_stack_dir }}"
+  changed_when: true
+  listen: Apply observability configuration

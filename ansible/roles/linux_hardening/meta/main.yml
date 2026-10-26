@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: linux_hardening
+  namespace: ali_fakhrabadi
+  author: Ali Fakhrabadi
+  description: SSH, UFW, fail2ban, kernel and update hardening for Debian and Ubuntu servers
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Debian
+      versions: [bookworm]
+    - name: Ubuntu
+      versions: [noble]
+  galaxy_tags: [security, hardening, ssh, ufw, fail2ban]
+dependencies: []

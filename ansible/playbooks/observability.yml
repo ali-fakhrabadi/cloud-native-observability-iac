@@ -1,0 +1,6 @@
+---
+- name: Deploy and verify the observability stack
+  hosts: monitoring
+  become: true
+  roles:
+    - role: observability_stack

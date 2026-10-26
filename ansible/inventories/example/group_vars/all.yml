@@ -1,0 +1,9 @@
+---
+# Hardening for every host. SSH stays reachable from anywhere (rate limited, keys only,
+# fail2ban); everything else is closed unless listed.
+linux_hardening_ssh_allow_groups: [sudo]
+linux_hardening_firewall_allowed_ports:
+  # Grafana, only from the operators' network (or put it behind a reverse proxy on 443).
+  - {port: 3000, from: 198.51.100.0/24, comment: Grafana from the office}
+  # Node Exporter runs in the host network; only the Prometheus container may reach it.
+  - {port: 9100, from: 172.16.0.0/12, comment: Node Exporter from Docker networks}

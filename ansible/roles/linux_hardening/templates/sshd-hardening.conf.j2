@@ -1,0 +1,39 @@
+# {{ ansible_managed }}
+# Loaded before the rest of sshd_config; for sshd the first value of an option wins.
+
+Port {{ linux_hardening_ssh_port }}
+
+# Authentication: keys only, no root, few attempts.
+PermitRootLogin {{ linux_hardening_ssh_permit_root_login }}
+PubkeyAuthentication yes
+PasswordAuthentication {{ 'yes' if linux_hardening_ssh_password_authentication else 'no' }}
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+AuthenticationMethods {{ 'any' if linux_hardening_ssh_password_authentication else 'publickey' }}
+MaxAuthTries {{ linux_hardening_ssh_max_auth_tries }}
+MaxSessions 4
+LoginGraceTime {{ linux_hardening_ssh_login_grace_time }}
+{% if linux_hardening_ssh_allow_groups %}
+AllowGroups {{ linux_hardening_ssh_allow_groups | join(' ') }}
+{% endif %}
+
+# Idle sessions are closed after ClientAliveInterval x ClientAliveCountMax seconds.
+ClientAliveInterval {{ linux_hardening_ssh_client_alive_interval }}
+ClientAliveCountMax {{ linux_hardening_ssh_client_alive_count_max }}
+
+# Forwarding: tunnels to local services only; no X11, agent or remote forwarding.
+AllowTcpForwarding {{ linux_hardening_ssh_allow_tcp_forwarding }}
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+PermitUserEnvironment no
+
+# Modern algorithms only.
+KexAlgorithms {{ linux_hardening_ssh_kex_algorithms | join(',') }}
+Ciphers {{ linux_hardening_ssh_ciphers | join(',') }}
+MACs {{ linux_hardening_ssh_macs | join(',') }}
+HostKeyAlgorithms {{ linux_hardening_ssh_host_key_algorithms | join(',') }}
+
+# Log key fingerprints of logins (fail2ban and audits rely on it).
+LogLevel VERBOSE

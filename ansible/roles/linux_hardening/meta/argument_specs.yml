@@ -1,0 +1,55 @@
+---
+# Validated by Ansible before the role runs: a typo or wrong type fails fast instead of
+# producing a half-hardened server.
+argument_specs:
+  main:
+    short_description: Harden SSH, the firewall, fail2ban, kernel parameters and updates
+    options:
+      linux_hardening_ssh_port: {type: int, default: 22}
+      linux_hardening_ssh_permit_root_login:
+        type: str
+        default: "no"
+        choices: ["no", "prohibit-password"]
+      linux_hardening_ssh_password_authentication: {type: bool, default: false}
+      linux_hardening_ssh_require_authorized_keys: {type: bool, default: true}
+      linux_hardening_ssh_admin_user: {type: str}
+      linux_hardening_ssh_allow_groups: {type: list, elements: str, default: []}
+      linux_hardening_ssh_allow_tcp_forwarding:
+        type: str
+        default: local
+        choices: ["no", "local", "yes"]
+      linux_hardening_ssh_max_auth_tries: {type: int, default: 3}
+      linux_hardening_ssh_login_grace_time: {type: int, default: 30}
+      linux_hardening_ssh_client_alive_interval: {type: int, default: 300}
+      linux_hardening_ssh_client_alive_count_max: {type: int, default: 2}
+      linux_hardening_ssh_kex_algorithms: {type: list, elements: str}
+      linux_hardening_ssh_ciphers: {type: list, elements: str}
+      linux_hardening_ssh_macs: {type: list, elements: str}
+      linux_hardening_ssh_host_key_algorithms: {type: list, elements: str}
+      linux_hardening_firewall_enabled: {type: bool, default: true}
+      linux_hardening_firewall_allowed_ports:
+        type: list
+        elements: dict
+        default: []
+        options:
+          port: {type: int, required: true}
+          proto: {type: str, default: tcp, choices: [tcp, udp]}
+          from: {type: str, default: any}
+          comment: {type: str, default: ""}
+      linux_hardening_firewall_ssh_sources: {type: list, elements: str, default: [any]}
+      linux_hardening_firewall_logging:
+        type: str
+        default: low
+        choices: ["off", low, medium, high, full]
+      linux_hardening_fail2ban_enabled: {type: bool, default: true}
+      linux_hardening_fail2ban_bantime: {type: str, default: 1h}
+      linux_hardening_fail2ban_findtime: {type: str, default: 10m}
+      linux_hardening_fail2ban_maxretry: {type: int, default: 5}
+      linux_hardening_fail2ban_ignoreip: {type: list, elements: str}
+      linux_hardening_fail2ban_recidive: {type: bool, default: true}
+      linux_hardening_sysctl_apply: {type: bool}
+      linux_hardening_sysctl: {type: dict}
+      linux_hardening_unattended_upgrades: {type: bool, default: true}
+      linux_hardening_unattended_upgrades_reboot: {type: bool, default: false}
+      linux_hardening_unattended_upgrades_reboot_time: {type: str, default: "04:00"}
+      linux_hardening_packages_absent: {type: list, elements: str}

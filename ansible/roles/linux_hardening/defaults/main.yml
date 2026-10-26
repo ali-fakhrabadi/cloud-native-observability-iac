@@ -1,0 +1,102 @@
+---
+# Every setting has a safe default; override per host or group in the inventory.
+
+# --- SSH -------------------------------------------------------------------------------
+linux_hardening_ssh_port: 22
+linux_hardening_ssh_permit_root_login: "no"
+linux_hardening_ssh_password_authentication: false
+# Refuse to disable password logins while the admin user has no authorized key (lockout
+# guard). The admin user defaults to the account Ansible connects as.
+linux_hardening_ssh_require_authorized_keys: true
+linux_hardening_ssh_admin_user: "{{ ansible_user | default(ansible_user_id) }}"
+# Restrict SSH to members of these groups; empty means no restriction.
+linux_hardening_ssh_allow_groups: []
+# "local" keeps SSH tunnels (e.g. to Grafana or Prometheus) working; "no" disables them.
+linux_hardening_ssh_allow_tcp_forwarding: local
+linux_hardening_ssh_max_auth_tries: 3
+linux_hardening_ssh_login_grace_time: 30
+linux_hardening_ssh_client_alive_interval: 300
+linux_hardening_ssh_client_alive_count_max: 2
+# Modern algorithms supported by OpenSSH 9.2+ (Debian 12) and clients from 2020 onward.
+linux_hardening_ssh_kex_algorithms:
+  - sntrup761x25519-sha512@openssh.com
+  - curve25519-sha256
+  - curve25519-sha256@libssh.org
+linux_hardening_ssh_ciphers:
+  - chacha20-poly1305@openssh.com
+  - aes256-gcm@openssh.com
+  - aes128-gcm@openssh.com
+  - aes256-ctr
+  - aes128-ctr
+linux_hardening_ssh_macs:
+  - hmac-sha2-512-etm@openssh.com
+  - hmac-sha2-256-etm@openssh.com
+  - umac-128-etm@openssh.com
+linux_hardening_ssh_host_key_algorithms:
+  - ssh-ed25519
+  - ssh-ed25519-cert-v01@openssh.com
+  - rsa-sha2-512
+  - rsa-sha2-256
+
+# --- Firewall (UFW) ---------------------------------------------------------------------
+linux_hardening_firewall_enabled: true
+# SSH is always allowed (rate limited); list everything else explicitly, e.g.
+#   - {port: 3000, from: 203.0.113.0/24, comment: Grafana}
+#   - {port: 9100, from: 172.16.0.0/12, comment: Node Exporter from Docker networks}
+linux_hardening_firewall_allowed_ports: []
+linux_hardening_firewall_ssh_sources: [any]
+linux_hardening_firewall_logging: low
+
+# --- fail2ban ---------------------------------------------------------------------------
+linux_hardening_fail2ban_enabled: true
+linux_hardening_fail2ban_bantime: 1h
+linux_hardening_fail2ban_findtime: 10m
+linux_hardening_fail2ban_maxretry: 5
+linux_hardening_fail2ban_ignoreip: [127.0.0.1/8, "::1"]
+# Repeat offenders (banned several times in a day) are banned for a week.
+linux_hardening_fail2ban_recidive: true
+
+# --- Kernel parameters ------------------------------------------------------------------
+# Applied immediately only on real machines: kernel.* and fs.* parameters are not
+# namespaced, so applying them inside a container would change the host's kernel.
+linux_hardening_sysctl_apply: "{{ ansible_virtualization_type | default('') not in ['docker', 'container', 'podman', 'lxc'] }}"
+linux_hardening_sysctl:
+  # Network: no redirects or source routing, spoofed packets dropped and logged.
+  net.ipv4.conf.all.rp_filter: 1
+  net.ipv4.conf.default.rp_filter: 1
+  net.ipv4.conf.all.accept_redirects: 0
+  net.ipv4.conf.default.accept_redirects: 0
+  net.ipv4.conf.all.secure_redirects: 0
+  net.ipv4.conf.all.send_redirects: 0
+  net.ipv4.conf.default.send_redirects: 0
+  net.ipv4.conf.all.accept_source_route: 0
+  net.ipv6.conf.all.accept_redirects: 0
+  net.ipv6.conf.default.accept_redirects: 0
+  net.ipv6.conf.all.accept_source_route: 0
+  net.ipv4.conf.all.log_martians: 1
+  net.ipv4.icmp_echo_ignore_broadcasts: 1
+  net.ipv4.icmp_ignore_bogus_error_responses: 1
+  net.ipv4.tcp_syncookies: 1
+  # Kernel: hide kernel pointers and logs from users, restrict ptrace and BPF.
+  kernel.kptr_restrict: 2
+  kernel.dmesg_restrict: 1
+  kernel.yama.ptrace_scope: 1
+  kernel.unprivileged_bpf_disabled: 1
+  net.core.bpf_jit_harden: 2
+  kernel.sysrq: 0
+  # Filesystem: block link and FIFO tricks in world-writable directories, no core dumps
+  # of setuid programs.
+  fs.protected_hardlinks: 1
+  fs.protected_symlinks: 1
+  fs.protected_fifos: 2
+  fs.protected_regular: 2
+  fs.suid_dumpable: 0
+  # net.ipv4.ip_forward is deliberately left alone: Docker needs forwarding.
+
+# --- Updates ----------------------------------------------------------------------------
+linux_hardening_unattended_upgrades: true
+linux_hardening_unattended_upgrades_reboot: false
+linux_hardening_unattended_upgrades_reboot_time: "04:00"
+
+# --- Packages ---------------------------------------------------------------------------
+linux_hardening_packages_absent: [telnet, rsh-client, rsh-redone-client, talk]

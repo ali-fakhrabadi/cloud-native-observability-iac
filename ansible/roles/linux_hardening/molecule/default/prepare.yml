@@ -1,0 +1,32 @@
+---
+- name: Prepare an admin user that logs in with a key
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Install the SSH client tools
+      ansible.builtin.apt:
+        name: openssh-client
+        update_cache: true
+
+    - name: Create the admin user with a throwaway key pair
+      ansible.builtin.user:
+        name: deploy
+        shell: /bin/bash
+        groups: [sudo]
+        append: true
+        generate_ssh_key: true
+        ssh_key_type: ed25519
+
+    - name: Authorize the key
+      ansible.builtin.copy:
+        src: /home/deploy/.ssh/id_ed25519.pub
+        dest: /home/deploy/.ssh/authorized_keys
+        remote_src: true
+        owner: deploy
+        group: deploy
+        mode: "0600"
+
+    - name: Create a user without keys for the lockout guard test
+      ansible.builtin.user:
+        name: nokeys
+        shell: /bin/bash

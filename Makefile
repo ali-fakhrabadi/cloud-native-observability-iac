@@ -19,10 +19,12 @@ CHECK := docker run --rm --volume "$(CURDIR)/config:/config:ro"
 AMTOOL_ROUTE := $(CHECK) --entrypoint amtool $(ALERTMANAGER_IMAGE) config routes test \
 	--config.file=/config/alertmanager/alertmanager.yml
 
+ANSIBLE_ROLES := linux_hardening observability_stack
+
 LOCK_IMAGE := python:3.12.15-slim-trixie
 UV_VERSION := 0.13.5
 
-.PHONY: help env secrets up down destroy ps logs reload smoke check-dashboards dashboards validate test-rules lint tools lock ci
+.PHONY: help env secrets up down destroy ps logs reload smoke check-dashboards dashboards validate test-rules lint ansible-lint test-ansible tools lock ci
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_.-]+:.*## / {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -84,7 +86,20 @@ lint: tools ## YAML, shell, dashboard and runbook checks
 	$(TOOLS) python3 tools/dashboards/build.py --check
 	$(TOOLS) python3 scripts/check_runbooks.py
 
-tools: ## Build the linting image (PIP_INDEX_URL=... for a PyPI mirror)
+ansible-lint: tools ## ansible-lint with the production profile
+	docker run --rm --volume "$(CURDIR):/work" --workdir /work --env ANSIBLE_ROLES_PATH=/work/ansible/roles $(TOOLS_IMAGE) ansible-lint
+
+# Molecule creates disposable test machines through the host's Docker daemon.
+test-ansible: tools ## Molecule: apply the roles to disposable containers and verify them (ROLE=name for one)
+	@for role in $(or $(ROLE),$(ANSIBLE_ROLES)); do \
+		echo "== molecule test: $$role"; \
+		docker run --rm --volume "$(CURDIR):/work" --volume /var/run/docker.sock:/var/run/docker.sock \
+			--group-add "$$(stat -c %g /var/run/docker.sock)" --workdir "/work/ansible/roles/$$role" \
+			--env ANSIBLE_FORCE_COLOR=1 --env MOLECULE_DOCKER_MIRROR=$(MOLECULE_DOCKER_MIRROR) \
+			$(TOOLS_IMAGE) molecule test || exit 1; \
+	done
+
+tools: ## Build the tooling image (PIP_INDEX_URL=... for a PyPI mirror)
 	docker build --quiet --tag $(TOOLS_IMAGE) $(if $(PIP_INDEX_URL),--build-arg PIP_INDEX_URL=$(PIP_INDEX_URL)) tools > /dev/null
 
 lock: ## Re-resolve and hash-pin tools/requirements.txt

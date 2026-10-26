@@ -1,0 +1,113 @@
+---
+- name: Verify the hardened machine
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Read the effective SSH server configuration
+      ansible.builtin.command: /usr/sbin/sshd -T
+      changed_when: false
+      register: linux_hardening_sshd
+
+    - name: SSH accepts keys only, no root, few attempts and modern algorithms
+      ansible.builtin.assert:
+        that:
+          - "'permitrootlogin no' in linux_hardening_sshd.stdout_lines"
+          - "'passwordauthentication no' in linux_hardening_sshd.stdout_lines"
+          - "'kbdinteractiveauthentication no' in linux_hardening_sshd.stdout_lines"
+          - "'authenticationmethods publickey' in linux_hardening_sshd.stdout_lines"
+          - "'maxauthtries 3' in linux_hardening_sshd.stdout_lines"
+          - "'x11forwarding no' in linux_hardening_sshd.stdout_lines"
+          - "'allowagentforwarding no' in linux_hardening_sshd.stdout_lines"
+          - "'allowtcpforwarding local' in linux_hardening_sshd.stdout_lines"
+          - "'allowgroups sudo' in linux_hardening_sshd.stdout_lines"
+          - linux_hardening_sshd.stdout is search('kexalgorithms sntrup761x25519-sha512@openssh.com,curve25519-sha256')
+          - linux_hardening_sshd.stdout is not search('ciphers .*cbc')
+        quiet: true
+
+    - name: Read the service states
+      ansible.builtin.service_facts:
+
+    - name: SSH and fail2ban are running and enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['ssh.service'].state == 'running'
+          - ansible_facts.services['ssh.service'].status == 'enabled'
+          - ansible_facts.services['fail2ban.service'].state == 'running'
+          - ansible_facts.services['fail2ban.service'].status == 'enabled'
+
+    - name: Read the firewall status
+      ansible.builtin.command: ufw status verbose
+      changed_when: false
+      register: linux_hardening_ufw
+
+    - name: The firewall denies by default and allows only what is listed
+      ansible.builtin.assert:
+        that:
+          - linux_hardening_ufw.stdout is search('Status:\s+active')
+          - linux_hardening_ufw.stdout is search('Default:\s+deny \(incoming\), allow \(outgoing\)')
+          - linux_hardening_ufw.stdout is search('22/tcp\s+LIMIT IN\s+Anywhere')
+          - linux_hardening_ufw.stdout is search('3000/tcp\s+ALLOW IN\s+10\.0\.0\.0/8')
+          - linux_hardening_ufw.stdout is search('9100/tcp\s+ALLOW IN\s+172\.16\.0\.0/12')
+        fail_msg: "{{ linux_hardening_ufw.stdout }}"
+
+    - name: Read the fail2ban jails
+      ansible.builtin.command: fail2ban-client status
+      changed_when: false
+      register: linux_hardening_jails
+
+    - name: The SSH and repeat-offender jails are active
+      ansible.builtin.assert:
+        that:
+          - linux_hardening_jails.stdout is search('sshd')
+          - linux_hardening_jails.stdout is search('recidive')
+        fail_msg: "{{ linux_hardening_jails.stdout }}"
+
+    - name: Read the kernel parameter file
+      ansible.builtin.slurp:
+        src: /etc/sysctl.d/90-hardening.conf
+      register: linux_hardening_sysctl
+
+    - name: Kernel parameters are written, IP forwarding is left to Docker
+      ansible.builtin.assert:
+        that:
+          - (linux_hardening_sysctl.content | b64decode) is search('kernel.kptr_restrict = 2')
+          - (linux_hardening_sysctl.content | b64decode) is search('net.ipv4.tcp_syncookies = 1')
+          - (linux_hardening_sysctl.content | b64decode) is not search('ip_forward =')
+
+    - name: Read the apt configuration
+      ansible.builtin.command: apt-config dump Unattended-Upgrade
+      changed_when: false
+      register: linux_hardening_apt
+
+    - name: Unattended upgrades take security updates only and never reboot
+      ansible.builtin.assert:
+        that:
+          - linux_hardening_apt.stdout is search('Automatic-Reboot "false"')
+          - linux_hardening_apt.stdout is search('-security')
+          - linux_hardening_apt.stdout is not search('label=Debian";')
+        fail_msg: "{{ linux_hardening_apt.stdout }}"
+
+    - name: Read the installed packages
+      ansible.builtin.package_facts:
+
+    - name: Clear-text clients are not installed
+      ansible.builtin.assert:
+        that: "'telnet' not in ansible_facts.packages"
+
+    - name: The lockout guard refuses a user without an authorized key
+      block:
+        - name: Run the role's preflight checks for a user without keys
+          ansible.builtin.include_role:
+            name: linux_hardening
+            tasks_from: preflight
+          vars:
+            linux_hardening_ssh_admin_user: nokeys
+
+        - name: Fail, because the preflight checks should have stopped the run
+          ansible.builtin.fail:
+            msg: The lockout guard accepted a user without authorized keys.
+      rescue:
+        - name: The failure came from the lockout guard
+          ansible.builtin.assert:
+            that: ansible_failed_result.msg is search('would lock everyone out')
+            fail_msg: "Unexpected failure: {{ ansible_failed_result.msg }}"

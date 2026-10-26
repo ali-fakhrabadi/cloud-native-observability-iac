@@ -1,0 +1,26 @@
+---
+- name: Only Debian and Ubuntu are supported
+  ansible.builtin.assert:
+    that: ansible_facts["os_family"] == "Debian"
+    fail_msg: "observability_stack supports Debian and Ubuntu, not {{ ansible_facts['distribution'] }}."
+    quiet: true
+
+# bash, openssl and python3 run the stack's scripts; python3-debian is needed by the
+# deb822_repository module that adds Docker's repository.
+- name: Install the prerequisites
+  ansible.builtin.apt:
+    name: [bash, openssl, python3, python3-debian]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install and configure Docker
+  ansible.builtin.import_tasks: docker.yml
+  when: observability_stack_manage_docker
+
+- name: Deploy the stack
+  ansible.builtin.import_tasks: deploy.yml
+
+- name: Verify the running stack
+  ansible.builtin.import_tasks: verify.yml
+  when: observability_stack_smoke_test

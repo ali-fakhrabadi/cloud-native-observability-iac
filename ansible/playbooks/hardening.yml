@@ -1,0 +1,6 @@
+---
+- name: Harden SSH, the firewall, fail2ban, kernel parameters and updates
+  hosts: all
+  become: true
+  roles:
+    - role: linux_hardening

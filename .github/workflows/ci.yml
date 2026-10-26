@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint YAML, shell, dashboards and runbooks
+    name: Lint YAML, shell, Ansible, dashboards and runbooks
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -42,6 +42,11 @@ jobs:
       - name: Every alert has a runbook
         run: python3 scripts/check_runbooks.py
 
+      - name: ansible-lint (production profile)
+        run: ansible-lint
+        env:
+          ANSIBLE_ROLES_PATH: ${{ github.workspace }}/ansible/roles
+
   validate:
     name: Validate configuration with the pinned binaries
     runs-on: ubuntu-24.04
@@ -56,6 +61,36 @@ jobs:
 
       - name: Alert rule unit tests and Alertmanager routing tests
         run: make test-rules
+
+  molecule:
+    name: "Molecule: ${{ matrix.role }}"
+    needs: [lint]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [linux_hardening, observability_stack]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install hash-pinned tooling
+        run: pip install --require-hashes -r tools/requirements.txt
+
+      # Disposable systemd containers: converge, converge again (must change nothing),
+      # verify, destroy.
+      - name: Molecule test
+        run: molecule test
+        working-directory: ansible/roles/${{ matrix.role }}
+        env:
+          ANSIBLE_FORCE_COLOR: "1"
+          PY_COLORS: "1"
 
   smoke:
     name: Start the stack and test it end to end

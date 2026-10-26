@@ -1,0 +1,12 @@
+---
+# ansible-lint for the roles and playbooks. Collections come from the `ansible` package,
+# so nothing is fetched from Galaxy.
+profile: production
+offline: true
+exclude_paths:
+  - .github/
+  - config/
+  - docker-compose.observability.yml
+  - tools/
+  - terraform/
+  - secrets/

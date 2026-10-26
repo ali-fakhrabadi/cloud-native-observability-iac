@@ -1,0 +1,52 @@
+---
+# Where the stack lives on the target and where its files come from (this repository).
+observability_stack_dir: /opt/observability
+observability_stack_source: "{{ role_path }}/../../.."
+
+# Everything under these directories of the repository is deployed, except local files:
+# declared Sentinel targets (rendered by the role) and Python caches.
+observability_stack_tree: >-
+  {{ query('community.general.filetree',
+           observability_stack_source ~ '/config',
+           observability_stack_source ~ '/scripts',
+           observability_stack_source ~ '/tools/alert-sink')
+     | rejectattr('path', 'match', '^prometheus/targets/[^/]+\.yml$')
+     | rejectattr('path', 'search', '__pycache__')
+     | list }}
+
+# Install Docker Engine and the Compose plugin from Docker's repository. Set to false on
+# hosts that already run Docker and must not have it reconfigured.
+observability_stack_manage_docker: true
+observability_stack_docker_registry_mirrors: []
+observability_stack_docker_log_max_size: 10m
+observability_stack_docker_log_max_file: 3
+
+# Values for the stack's .env (see .env.example); merged over the defaults below.
+observability_stack_env: {}
+observability_stack_env_defaults:
+  INSTANCE_NAME: "{{ inventory_hostname }}"
+  GRAFANA_BIND_ADDRESS: 127.0.0.1
+  GRAFANA_HTTP_PORT: 3000
+  GRAFANA_ROOT_URL: http://localhost:3000
+  GRAFANA_ADMIN_USER: admin
+  GRAFANA_COOKIE_SECURE: "false"
+  PROMETHEUS_BIND_ADDRESS: 127.0.0.1
+  PROMETHEUS_HTTP_PORT: 9090
+  PROMETHEUS_EXTERNAL_URL: http://localhost:9090
+  PROMETHEUS_RETENTION_TIME: 15d
+  PROMETHEUS_RETENTION_SIZE: 5GB
+  ALERTMANAGER_BIND_ADDRESS: 127.0.0.1
+  ALERTMANAGER_HTTP_PORT: 9093
+  ALERTMANAGER_EXTERNAL_URL: http://localhost:9093
+  NODE_EXPORTER_LISTEN_ADDRESS: 0.0.0.0:9100
+
+# Optional integrations. Secrets belong in Ansible Vault; they are never logged.
+# Sentinel: addresses to scrape ("host:port") and its METRICS_AUTH_TOKEN.
+observability_stack_sentinel_targets: []
+observability_stack_sentinel_token: ""
+# Where Alertmanager sends notifications; empty keeps the bundled alert-sink.
+observability_stack_webhook_url: ""
+
+# Fail the deployment unless the stack passes its end-to-end smoke test.
+observability_stack_smoke_test: true
+observability_stack_smoke_test_timeout: 180

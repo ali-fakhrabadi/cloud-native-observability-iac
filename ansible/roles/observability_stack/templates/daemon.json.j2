@@ -1,0 +1,11 @@
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "{{ observability_stack_docker_log_max_size }}",
+    "max-file": "{{ observability_stack_docker_log_max_file }}"
+  },
+  "live-restore": true,
+  "no-new-privileges": true{% if observability_stack_docker_registry_mirrors %},
+  "registry-mirrors": {{ observability_stack_docker_registry_mirrors | to_json }}{% endif %}
+
+}

@@ -1,0 +1,23 @@
+# Disposable test machine for Molecule: the official Debian or Ubuntu image plus systemd,
+# so services (sshd, fail2ban, Docker) run as they do on a real server.
+FROM {{ item.image }}
+
+ENV container=docker \
+    DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        ca-certificates iproute2 python3 python3-apt sudo systemd systemd-sysv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    # Deleting the lists refreshes the directory's mtime, which Ansible's apt module
+    # (cache_valid_time) would take for a fresh cache. Mark it as old instead.
+    && touch -d @0 /var/lib/apt/lists \
+    # Units that make no sense in a container.
+    && rm -f /lib/systemd/system/multi-user.target.wants/getty.target \
+              /lib/systemd/system/sysinit.target.wants/systemd-firstboot.service \
+              /lib/systemd/system/systemd-update-utmp* \
+    && systemctl mask systemd-logind.service getty.target
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]

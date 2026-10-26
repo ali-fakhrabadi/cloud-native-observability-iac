@@ -1,0 +1,19 @@
+---
+argument_specs:
+  main:
+    short_description: Deploy the observability stack with Docker Compose and verify it
+    options:
+      observability_stack_dir: {type: path, default: /opt/observability}
+      observability_stack_source: {type: path}
+      observability_stack_tree: {type: list, elements: dict}
+      observability_stack_manage_docker: {type: bool, default: true}
+      observability_stack_docker_registry_mirrors: {type: list, elements: str, default: []}
+      observability_stack_docker_log_max_size: {type: str, default: 10m}
+      observability_stack_docker_log_max_file: {type: int, default: 3}
+      observability_stack_env: {type: dict, default: {}}
+      observability_stack_env_defaults: {type: dict}
+      observability_stack_sentinel_targets: {type: list, elements: str, default: []}
+      observability_stack_sentinel_token: {type: str, default: "", no_log: true}
+      observability_stack_webhook_url: {type: str, default: "", no_log: true}
+      observability_stack_smoke_test: {type: bool, default: true}
+      observability_stack_smoke_test_timeout: {type: int, default: 180}

@@ -1,0 +1,24 @@
+---
+- name: Check the host and the configuration before changing anything
+  ansible.builtin.import_tasks: preflight.yml
+
+- name: Install and remove packages
+  ansible.builtin.import_tasks: packages.yml
+
+- name: Configure the firewall
+  ansible.builtin.import_tasks: firewall.yml
+  when: linux_hardening_firewall_enabled
+
+- name: Harden the SSH server
+  ansible.builtin.import_tasks: ssh.yml
+
+- name: Configure fail2ban
+  ansible.builtin.import_tasks: fail2ban.yml
+  when: linux_hardening_fail2ban_enabled
+
+- name: Set kernel parameters
+  ansible.builtin.import_tasks: sysctl.yml
+
+- name: Configure automatic security updates
+  ansible.builtin.import_tasks: updates.yml
+  when: linux_hardening_unattended_upgrades

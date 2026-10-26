@@ -1,2 +1,14 @@
-# Tooling for linting and validating this repository (`make lock` pins it with hashes).
+# Tooling for linting, validating and testing this repository (`make lock` pins it with
+# hashes).
 yamllint==1.38.0
+
+# ansible-core 2.21 plus the community collections (community.general, ansible.posix,
+# community.docker). Installing collections from PyPI instead of Galaxy keeps them
+# hash-pinned and works where galaxy.ansible.com is unreachable.
+ansible==14.5.0
+ansible-lint==26.10.1
+
+# Role tests in disposable containers.
+molecule==26.10.0
+molecule-plugins[docker]==26.10.12
+docker==7.2.0

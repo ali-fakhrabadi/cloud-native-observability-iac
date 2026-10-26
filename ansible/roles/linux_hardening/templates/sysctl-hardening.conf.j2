@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# net.ipv4.ip_forward is deliberately not set here: Docker needs forwarding.
+{% for key, value in linux_hardening_sysctl | dictsort %}
+{{ key }} = {{ value }}
+{% endfor %}

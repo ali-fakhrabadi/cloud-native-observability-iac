@@ -1,0 +1,11 @@
+---
+observability_stack_env:
+  INSTANCE_NAME: "{{ inventory_hostname }}"
+  GRAFANA_BIND_ADDRESS: 0.0.0.0
+  GRAFANA_ROOT_URL: "http://{{ ansible_host }}:3000"
+
+# Monitor a Sentinel deployment (leave the list empty to skip).
+observability_stack_sentinel_targets: ["10.0.1.20:8000"]
+observability_stack_sentinel_token: "{{ vault_sentinel_metrics_token | default('') }}"
+# Deliver alerts to the AIOps incident engine instead of the bundled alert-sink.
+observability_stack_webhook_url: "{{ vault_alertmanager_webhook_url | default('') }}"

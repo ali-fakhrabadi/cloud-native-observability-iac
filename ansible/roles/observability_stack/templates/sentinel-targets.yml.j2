@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+- targets: {{ observability_stack_sentinel_targets | to_json }}
+  labels:
+    service: sentinel
+    environment: "{{ observability_stack_env.ENVIRONMENT | default('production') }}"

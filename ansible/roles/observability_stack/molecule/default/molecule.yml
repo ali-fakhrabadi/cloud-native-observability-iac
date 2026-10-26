@@ -1,0 +1,42 @@
+---
+# A disposable Debian 12 machine with systemd. The role installs Docker inside it and
+# deploys the whole stack there (Docker in Docker), so the test covers a deployment from
+# a bare server to a passing smoke test.
+dependency:
+  name: galaxy
+  enabled: false # collections come from the hash-pinned `ansible` package
+driver:
+  name: docker
+platforms:
+  - name: observability-debian12
+    image: debian:12
+    dockerfile: ../../../../molecule/Dockerfile.j2
+    pre_build_image: false
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      # The inner Docker and its containerd image store need a real filesystem for their
+      # data (overlay on overlay does not work); the named volumes also keep pulled images
+      # between test runs.
+      - molecule-observability-docker:/var/lib/docker
+      - molecule-observability-containerd:/var/lib/containerd
+    tmpfs: ["/run", "/tmp"]
+    command: /lib/systemd/systemd
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: ../../../
+verifier:
+  name: ansible
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy

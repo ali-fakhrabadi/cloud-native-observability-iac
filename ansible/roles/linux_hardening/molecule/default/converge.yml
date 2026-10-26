@@ -1,0 +1,11 @@
+---
+- name: Converge
+  hosts: all
+  vars:
+    linux_hardening_ssh_admin_user: deploy
+    linux_hardening_ssh_allow_groups: [sudo]
+    linux_hardening_firewall_allowed_ports:
+      - {port: 3000, from: 10.0.0.0/8, comment: Grafana from the office network}
+      - {port: 9100, from: 172.16.0.0/12, comment: Node Exporter from Docker networks}
+  roles:
+    - role: linux_hardening

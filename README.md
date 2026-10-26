@@ -161,6 +161,56 @@ its address, and put Sentinel's `METRICS_AUTH_TOKEN` into `secrets/sentinel_metr
 | `make reload` | Apply configuration changes (SIGHUP for Prometheus and Alertmanager, restart for the rest) |
 | `make logs SERVICE=loki` | Follow one service's logs |
 | `make destroy` | Remove the stack and all stored data |
+| `make ansible-lint` | ansible-lint with the production profile |
+| `make test-ansible` | Molecule tests of both Ansible roles in disposable containers |
+
+## Ansible: hardening and deployment
+
+Two roles in [`ansible/roles`](ansible/roles), applied by
+[`playbooks/site.yml`](ansible/playbooks/site.yml) (hardening on every host, the stack on the
+`monitoring` group):
+
+```bash
+cd ansible
+cp -r inventories/example inventories/prod        # set addresses and variables
+ansible-vault encrypt inventories/prod/group_vars/monitoring/vault.yml
+ansible-playbook -i inventories/prod playbooks/site.yml --ask-vault-pass
+```
+
+**`linux_hardening`** (tested on Debian 12 and Ubuntu 24.04)
+
+| Area | What it does |
+|---|---|
+| SSH | Keys only, no root login, 3 attempts, idle timeout, no agent/X11/remote forwarding, modern key exchange (including post-quantum `sntrup761x25519`), ciphers and MACs; a drop-in that takes precedence over distribution and cloud-init defaults, validated with `sshd -t` before reload |
+| Lockout guard | Refuses to disable password logins while the admin user has no authorized key |
+| Firewall (UFW) | Deny incoming by default; SSH allowed and rate limited *before* the firewall is enabled; every other port listed explicitly with its allowed source |
+| fail2ban | SSH jail on the systemd journal, bans through UFW, a one-week ban for repeat offenders |
+| Kernel | Redirect, source-routing and spoofing protection, SYN cookies, restricted `dmesg`, kernel pointers, ptrace and BPF, protected links and FIFOs; IP forwarding left to Docker |
+| Updates | Unattended security updates only, no automatic reboot unless enabled |
+
+**`observability_stack`** installs Docker Engine from Docker's signed repository (with
+`live-restore` and log rotation), deploys this repository's stack to `/opt/observability`,
+renders `.env` from variables, generates missing secrets with `scripts/generate_secrets.sh`,
+takes the Sentinel token and receiver URL from Ansible Vault without logging them, starts
+the stack with `docker_compose_v2`, applies configuration changes with SIGHUP or restarts,
+and **fails the deployment unless the smoke test passes**. Set
+`observability_stack_manage_docker: false` on hosts whose Docker must not be reconfigured.
+
+**Tested in disposable machines.** `make test-ansible` (and CI) runs each role with
+Molecule in privileged systemd containers: `linux_hardening` on Debian 12 and Ubuntu 24.04,
+`observability_stack` on a bare Debian 12 where it installs Docker and deploys the whole
+stack inside it. Each test converges, converges again and requires zero changes
+(idempotence), then verifies the result: effective `sshd -T` settings, UFW rules, active
+fail2ban jails, the lockout guard rejecting a user without keys, file permissions, the
+smoke test and every dashboard query. Firewall rules in a test container stay in its own
+network namespace, and kernel parameters are written but not applied there (most are not
+namespaced and would change the test host).
+
+> **Docker and UFW.** Ports that Docker publishes bypass UFW's rules (Docker inserts its own
+> iptables rules first). That is why the stack publishes Prometheus and Alertmanager on
+> `127.0.0.1` only and Grafana on `127.0.0.1` by default: expose Grafana through a reverse
+> proxy on the host, or bind it to a private interface. Node Exporter runs in the host
+> network, so UFW does apply to port 9100.
 
 ## Roadmap
 
@@ -168,7 +218,7 @@ its address, and put Sentinel's `METRICS_AUTH_TOKEN` into `secrets/sentinel_metr
 2. Alert rules with unit tests, Alertmanager routing, log parsing and Grafana dashboards
    **(done)**
 3. Ansible roles `linux_hardening` (SSH, UFW, fail2ban) and `observability_stack`, tested
-   with Molecule
+   with Molecule **(done)**
 4. Terraform for an AWS VPS and firewall, tested with `terraform test` and mocked providers
 5. Measured fault-injection drills, documentation and release
 

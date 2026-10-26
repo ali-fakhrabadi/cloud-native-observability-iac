@@ -1,0 +1,37 @@
+---
+- name: Only Debian and Ubuntu are supported
+  ansible.builtin.assert:
+    that: ansible_facts["os_family"] == "Debian"
+    fail_msg: "linux_hardening supports Debian and Ubuntu, not {{ ansible_facts['distribution'] }}."
+    quiet: true
+
+- name: Look up the admin user's home directory
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ linux_hardening_ssh_admin_user }}"
+  when:
+    - not linux_hardening_ssh_password_authentication
+    - linux_hardening_ssh_require_authorized_keys
+
+- name: Check the admin user's authorized_keys
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['getent_passwd'][linux_hardening_ssh_admin_user][4] }}/.ssh/authorized_keys"
+  register: linux_hardening_authorized_keys
+  when:
+    - not linux_hardening_ssh_password_authentication
+    - linux_hardening_ssh_require_authorized_keys
+
+# Lockout guard: disabling password logins without a working key locks everyone out.
+- name: Refuse to disable password logins without an authorized key
+  ansible.builtin.assert:
+    that:
+      - linux_hardening_authorized_keys.stat.exists
+      - linux_hardening_authorized_keys.stat.size > 0
+    fail_msg: >-
+      {{ linux_hardening_ssh_admin_user }} has no SSH authorized key, so disabling password
+      authentication would lock everyone out. Install a key first, or set
+      linux_hardening_ssh_require_authorized_keys to false if access is guaranteed another way.
+    quiet: true
+  when:
+    - not linux_hardening_ssh_password_authentication
+    - linux_hardening_ssh_require_authorized_keys

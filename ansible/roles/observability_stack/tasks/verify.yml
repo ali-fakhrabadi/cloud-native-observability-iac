@@ -1,0 +1,13 @@
+---
+- name: Run the end-to-end smoke test
+  ansible.builtin.command:
+    cmd: >-
+      python3 scripts/smoke_test.py --timeout {{ observability_stack_smoke_test_timeout }}
+      {{ '--require-job sentinel' if observability_stack_sentinel_targets else '' }}
+    chdir: "{{ observability_stack_dir }}"
+  register: observability_stack_smoke
+  changed_when: false
+
+- name: Show the smoke test result
+  ansible.builtin.debug:
+    msg: "{{ observability_stack_smoke.stdout_lines | select('match', '^(PASS|FAIL|[0-9]+/)') | list }}"

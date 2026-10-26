@@ -1,0 +1,8 @@
+---
+# Full server setup: harden every host, then deploy the stack on the monitoring hosts.
+#   ansible-playbook playbooks/site.yml --ask-vault-pass
+- name: Harden the servers
+  ansible.builtin.import_playbook: hardening.yml
+
+- name: Deploy the observability stack
+  ansible.builtin.import_playbook: observability.yml

@@ -1,0 +1,119 @@
+---
+- name: Create the stack directories
+  ansible.builtin.file:
+    path: "{{ observability_stack_dir }}/{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "", mode: "0755"}
+    - {path: config, mode: "0755"}
+    - {path: scripts, mode: "0755"}
+    - {path: tools, mode: "0755"}
+    - {path: tools/alert-sink, mode: "0755"}
+    # Other host users must not read the secrets; containers get them as bind mounts.
+    - {path: secrets, mode: "0700"}
+
+- name: Copy the stack definition
+  ansible.builtin.copy:
+    src: "{{ observability_stack_source }}/docker-compose.observability.yml"
+    dest: "{{ observability_stack_dir }}/docker-compose.observability.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+# File by file rather than whole directories, so that local files of the controller's
+# checkout (Sentinel targets, Python caches) are never shipped and the role stays
+# idempotent.
+- name: Create the configuration and script directories
+  ansible.builtin.file:
+    path: "{{ observability_stack_dir }}/{{ item.root | relpath(observability_stack_source) }}/{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ observability_stack_tree | selectattr('state', 'eq', 'directory') }}"
+  loop_control:
+    label: "{{ item.root | relpath(observability_stack_source) }}/{{ item.path }}"
+
+- name: Copy the configuration and scripts
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ observability_stack_dir }}/{{ item.root | relpath(observability_stack_source) }}/{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop: "{{ observability_stack_tree | selectattr('state', 'eq', 'file') }}"
+  loop_control:
+    label: "{{ item.root | relpath(observability_stack_source) }}/{{ item.path }}"
+  notify: Apply observability configuration
+
+- name: Write the stack settings
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ observability_stack_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0640"
+
+# The repository's own script: passwords and the Node Exporter bcrypt hash are created
+# once and never overwritten, so re-running the role keeps existing credentials.
+- name: Generate missing secrets
+  ansible.builtin.command:
+    cmd: bash scripts/generate_secrets.sh
+    chdir: "{{ observability_stack_dir }}"
+  register: observability_stack_secrets
+  changed_when: "'created' in observability_stack_secrets.stdout"
+
+- name: Store the Sentinel metrics token
+  ansible.builtin.copy:
+    content: "{{ observability_stack_sentinel_token }}"
+    dest: "{{ observability_stack_dir }}/secrets/sentinel_metrics_token"
+    owner: root
+    group: root
+    mode: "0644"
+  no_log: true
+  when: observability_stack_sentinel_token | length > 0
+
+- name: Store the notification receiver URL
+  ansible.builtin.copy:
+    content: "{{ observability_stack_webhook_url }}"
+    dest: "{{ observability_stack_dir }}/secrets/alertmanager_webhook_url"
+    owner: root
+    group: root
+    mode: "0644"
+  no_log: true
+  when: observability_stack_webhook_url | length > 0
+
+- name: Declare the Sentinel scrape targets
+  ansible.builtin.template:
+    src: sentinel-targets.yml.j2
+    dest: "{{ observability_stack_dir }}/config/prometheus/targets/sentinel.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: observability_stack_sentinel_targets | length > 0
+
+- name: Remove the Sentinel scrape targets when none are declared
+  ansible.builtin.file:
+    path: "{{ observability_stack_dir }}/config/prometheus/targets/sentinel.yml"
+    state: absent
+  when: observability_stack_sentinel_targets | length == 0
+
+# Creates or recreates only the containers whose definition or settings changed, and
+# waits until every service with a health check is healthy.
+- name: Start the stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ observability_stack_dir }}"
+    files: [docker-compose.observability.yml]
+    state: present
+    pull: missing
+    remove_orphans: true
+    wait: true
+    wait_timeout: 300
+
+# Configuration files are bind-mounted; changed ones are applied without recreating
+# containers.
+- name: Apply changed configuration files
+  ansible.builtin.meta: flush_handlers

@@ -1,0 +1,18 @@
+---
+- name: Install the hardening tools
+  ansible.builtin.apt:
+    name: "{{ linux_hardening_install_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  vars:
+    linux_hardening_install_packages: >-
+      {{ ['openssh-server']
+         + (['ufw'] if linux_hardening_firewall_enabled else [])
+         + (['fail2ban', 'python3-systemd'] if linux_hardening_fail2ban_enabled else [])
+         + (['unattended-upgrades'] if linux_hardening_unattended_upgrades else []) }}
+
+- name: Remove legacy clear-text clients
+  ansible.builtin.apt:
+    name: "{{ linux_hardening_packages_absent }}"
+    state: absent

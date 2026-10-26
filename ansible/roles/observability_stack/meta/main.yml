@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: observability_stack
+  namespace: ali_fakhrabadi
+  author: Ali Fakhrabadi
+  description: Deploys the Prometheus, Grafana, Loki, Alloy and Alertmanager stack with Docker Compose
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: Debian
+      versions: [bookworm]
+  galaxy_tags: [observability, monitoring, prometheus, grafana, loki, docker]
+dependencies: []

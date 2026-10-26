@@ -1,0 +1,4 @@
+---
+# Copy to vault.yml, fill in, then encrypt: ansible-vault encrypt vault.yml
+vault_sentinel_metrics_token: change-me
+vault_alertmanager_webhook_url: https://aiops.example.com/webhooks/alertmanager

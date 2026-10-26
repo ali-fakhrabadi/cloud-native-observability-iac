@@ -1,0 +1,11 @@
+---
+- name: Prepare the test machine
+  hosts: all
+  gather_facts: false
+  tasks:
+    # Node Exporter mounts the root filesystem with slave propagation, which needs a
+    # shared mount; on a real server / already is one.
+    # ansible.posix.mount cannot change mount propagation, hence the command.
+    - name: Make the root mount shared, as on a real server
+      ansible.builtin.command: mount --make-rshared / # noqa: command-instead-of-module
+      changed_when: false

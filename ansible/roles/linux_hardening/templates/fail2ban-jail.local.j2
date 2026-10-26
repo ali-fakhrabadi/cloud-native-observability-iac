@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+
+[DEFAULT]
+bantime = {{ linux_hardening_fail2ban_bantime }}
+findtime = {{ linux_hardening_fail2ban_findtime }}
+maxretry = {{ linux_hardening_fail2ban_maxretry }}
+ignoreip = {{ linux_hardening_fail2ban_ignoreip | join(' ') }}
+# Bans become firewall rules; with UFW they appear in `ufw status`.
+banaction = {{ 'ufw' if linux_hardening_firewall_enabled else 'nftables-multiport' }}
+# Debian 12 and Ubuntu log authentication to the journal, not /var/log/auth.log.
+backend = systemd
+
+[sshd]
+enabled = true
+port = {{ linux_hardening_ssh_port }}
+# Also counts pre-authentication failures such as invalid users and closed connections.
+mode = aggressive
+
+{% if linux_hardening_fail2ban_recidive %}
+# Repeat offenders: banned 3 times within a day means banned for a week.
+[recidive]
+enabled = true
+backend = auto
+logpath = /var/log/fail2ban.log
+bantime = 1w
+findtime = 1d
+maxretry = 3
+{% endif %}
