@@ -1,0 +1,147 @@
+# promtool unit tests for host alerts (make test-rules). Each alert is tested where it
+# must fire and where it must stay quiet.
+rule_files:
+  - ../rules/recording.yml
+  - ../rules/alerts-host.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: CPU and memory above 90% fire only after 10 minutes
+    interval: 1m
+    input_series:
+      # 3 idle seconds per minute and CPU = 5% idle = 95% busy.
+      - series: 'node_cpu_seconds_total{instance="host", cpu="0", mode="idle"}'
+        values: "0+3x30"
+      - series: 'node_cpu_seconds_total{instance="host", cpu="1", mode="idle"}'
+        values: "0+3x30"
+      - series: 'node_memory_MemAvailable_bytes{instance="host"}'
+        values: "500000000x30"
+      - series: 'node_memory_MemTotal_bytes{instance="host"}'
+        values: "10000000000x30"
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: HostHighCpuUsage
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: HostHighCpuUsage
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: host}
+            exp_annotations:
+              summary: "CPU usage above 90% on host"
+              description: "CPU utilisation has been 95% for at least 10 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#hosthighcpuusage"
+      - eval_time: 16m
+        alertname: HostHighMemoryUsage
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: host}
+            exp_annotations:
+              summary: "Memory usage above 90% on host"
+              description: "95% of memory has been in use for at least 10 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#hosthighmemoryusage"
+
+  - name: A short CPU spike does not fire
+    interval: 1m
+    input_series:
+      # Busy for 5 minutes (no idle time), then idle again.
+      - series: 'node_cpu_seconds_total{instance="host", cpu="0", mode="idle"}'
+        values: "0+60x5 300x5 300+60x20"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: HostHighCpuUsage
+        exp_alerts: []
+
+  - name: Disk space thresholds apply to real filesystems only
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{instance="host", device="/dev/sda1", fstype="ext4", mountpoint="/"}'
+        values: "4x10"
+      - series: 'node_filesystem_size_bytes{instance="host", device="/dev/sda1", fstype="ext4", mountpoint="/"}'
+        values: "100x10"
+      - series: 'node_filesystem_avail_bytes{instance="host", device="/dev/sdb1", fstype="xfs", mountpoint="/data"}'
+        values: "10x10"
+      - series: 'node_filesystem_size_bytes{instance="host", device="/dev/sdb1", fstype="xfs", mountpoint="/data"}'
+        values: "100x10"
+      # Nearly full tmpfs: never an alert.
+      - series: 'node_filesystem_avail_bytes{instance="host", device="tmpfs", fstype="tmpfs", mountpoint="/run"}'
+        values: "1x10"
+      - series: 'node_filesystem_size_bytes{instance="host", device="tmpfs", fstype="tmpfs", mountpoint="/run"}'
+        values: "100x10"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HostDiskSpaceLow
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: host, device: /dev/sda1, fstype: ext4, mountpoint: /}
+            exp_annotations:
+              summary: "Less than 15% free on / (host)"
+              description: "4% of / is free."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#hostdiskspacelow"
+          - exp_labels: {severity: warning, instance: host, device: /dev/sdb1, fstype: xfs, mountpoint: /data}
+            exp_annotations:
+              summary: "Less than 15% free on /data (host)"
+              description: "10% of /data is free."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#hostdiskspacelow"
+      - eval_time: 6m
+        alertname: HostDiskSpaceCritical
+        exp_alerts:
+          - exp_labels: {severity: critical, instance: host, device: /dev/sda1, fstype: ext4, mountpoint: /}
+            exp_annotations:
+              summary: "Less than 5% free on / (host)"
+              description: "4% of / is free; writes will start failing."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#hostdiskspacecritical"
+
+  - name: A filling disk is predicted, a stable one is not
+    interval: 1m
+    input_series:
+      # 39% free and shrinking by 100 bytes a minute: empty in under a day.
+      - series: 'node_filesystem_avail_bytes{instance="host", device="/dev/sdc1", fstype="ext4", mountpoint="/var"}'
+        values: "39000-100x60"
+      - series: 'node_filesystem_size_bytes{instance="host", device="/dev/sdc1", fstype="ext4", mountpoint="/var"}'
+        values: "100000x60"
+      # 30% free but stable.
+      - series: 'node_filesystem_avail_bytes{instance="host", device="/dev/sdd1", fstype="ext4", mountpoint="/srv"}'
+        values: "30000x60"
+      - series: 'node_filesystem_size_bytes{instance="host", device="/dev/sdd1", fstype="ext4", mountpoint="/srv"}'
+        values: "100000x60"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HostDiskWillFillIn24Hours
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: HostDiskWillFillIn24Hours
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: host, device: /dev/sdc1, fstype: ext4, mountpoint: /var}
+            exp_annotations:
+              summary: "/var on host will be full within 24 hours"
+              description: "At the growth rate of the last 6 hours the filesystem runs out of space within a day."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#hostdiskwillfillin24hours"
+
+  - name: OOM kills and inode exhaustion
+    interval: 1m
+    input_series:
+      - series: 'node_vmstat_oom_kill{instance="host"}'
+        values: "0 0 0 1 1 1 1 1 1 1 1 1 1 1 1"
+      - series: 'node_filesystem_files_free{instance="host", device="/dev/sda1", fstype="ext4", mountpoint="/"}'
+        values: "5x15"
+      - series: 'node_filesystem_files{instance="host", device="/dev/sda1", fstype="ext4", mountpoint="/"}'
+        values: "100x15"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: HostOomKillDetected
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: HostOomKillDetected
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: host}
+            exp_annotations:
+              summary: "The kernel killed a process for lack of memory on host"
+              description: "At least one process was killed by the kernel OOM killer in the last 5 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#hostoomkilldetected"
+      - eval_time: 12m
+        alertname: HostOutOfInodes
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: host, device: /dev/sda1, fstype: ext4, mountpoint: /}
+            exp_annotations:
+              summary: "Less than 10% free inodes on / (host)"
+              description: "5% of inodes are free; new files cannot be created once they run out."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#hostoutofinodes"

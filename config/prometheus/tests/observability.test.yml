@@ -1,0 +1,76 @@
+rule_files:
+  - ../rules/alerts-observability.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: The watchdog always fires
+    interval: 1m
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels: {severity: none}
+            exp_annotations:
+              summary: "Alerting pipeline heartbeat"
+              description: "Always firing while Prometheus evaluates rules and Alertmanager delivers notifications."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#watchdog"
+
+  - name: Failures anywhere in the alerting and logging pipeline
+    interval: 1m
+    input_series:
+      - series: 'prometheus_rule_evaluation_failures_total{rule_group="/etc/prometheus/rules/alerts-host.yml;host"}'
+        values: "0 0 0 1 1 1 1 1 1 1 1 1"
+      - series: 'prometheus_notifications_errors_total{alertmanager="http://alertmanager:9093/api/v2/alerts"}'
+        values: "0+1x20"
+      - series: 'alertmanager_notifications_failed_total{integration="webhook"}'
+        values: "0+1x20"
+      - series: 'alertmanager_notifications_failed_total{integration="email"}'
+        values: "0x20"
+      - series: "loki_write_dropped_entries_total"
+        values: "0+10x20"
+      - series: 'alloy_component_controller_running_components{health_type="healthy"}'
+        values: "12x20"
+      - series: 'alloy_component_controller_running_components{health_type="unhealthy"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: PrometheusRuleEvaluationFailures
+        exp_alerts:
+          - exp_labels: {severity: critical, rule_group: "/etc/prometheus/rules/alerts-host.yml;host"}
+            exp_annotations:
+              summary: "Prometheus fails to evaluate rule group /etc/prometheus/rules/alerts-host.yml;host"
+              description: "Alerts in this group cannot fire while evaluation fails."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#prometheusruleevaluationfailures"
+      - eval_time: 10m
+        alertname: PrometheusNotificationsFailing
+        exp_alerts:
+          - exp_labels: {severity: critical, alertmanager: "http://alertmanager:9093/api/v2/alerts"}
+            exp_annotations:
+              summary: "Prometheus cannot deliver alerts to Alertmanager"
+              description: "Alerts fire but do not reach Alertmanager (http://alertmanager:9093/api/v2/alerts)."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#prometheusnotificationsfailing"
+      - eval_time: 10m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts:
+          - exp_labels: {severity: critical, integration: webhook}
+            exp_annotations:
+              summary: "Alertmanager cannot deliver webhook notifications"
+              description: "Notifications through webhook have been failing for 5 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#alertmanagernotificationsfailing"
+      - eval_time: 10m
+        alertname: LogsDropped
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "Log lines are being dropped before they reach Loki"
+              description: "Alloy dropped or Loki rejected log entries for 5 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#logsdropped"
+      - eval_time: 12m
+        alertname: AlloyComponentUnhealthy
+        exp_alerts:
+          - exp_labels: {severity: warning, health_type: unhealthy}
+            exp_annotations:
+              summary: "1 Alloy component(s) are unhealthy"
+              description: "Part of the log pipeline is not running; check the Alloy UI or logs."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#alloycomponentunhealthy"

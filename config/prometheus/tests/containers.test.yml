@@ -1,0 +1,123 @@
+rule_files:
+  - ../rules/alerts-containers.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: A crash loop fires, a single restart does not
+    interval: 1m
+    input_series:
+      - series: 'container_start_time_seconds{name="web"}'
+        values: "100 100 200 200 300 300 400 400"
+      - series: 'container_start_time_seconds{name="worker"}'
+        values: "100 100 100 200 200 200 200 200"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: ContainerRestarting
+        exp_alerts:
+          - exp_labels: {severity: warning, name: web}
+            exp_annotations:
+              summary: "Container web is restarting repeatedly"
+              description: "web started 3 times in 15 minutes (crash loop)."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containerrestarting"
+
+  - name: A stopped service fires; recreated, one-off and short-lived containers do not
+    interval: 1m
+    input_series:
+      # container_last_seen and container_start_time_seconds are Unix times; the test
+      # clock starts at 0.
+      # A Compose service that ran for 6 minutes and then stopped.
+      - series: 'container_last_seen{name="db", id="/docker/a", container_label_com_docker_compose_project="app", container_label_com_docker_compose_service="db"}'
+        values: "0+60x6 stale"
+      - series: 'container_start_time_seconds{name="db", id="/docker/a", container_label_com_docker_compose_project="app", container_label_com_docker_compose_service="db"}'
+        values: "0x6 stale"
+      # Recreated under the same name: the old ID disappears, a new one continues.
+      - series: 'container_last_seen{name="api", id="/docker/old", container_label_com_docker_compose_project="app", container_label_com_docker_compose_service="api"}'
+        values: "0+60x6 stale"
+      - series: 'container_start_time_seconds{name="api", id="/docker/old", container_label_com_docker_compose_project="app", container_label_com_docker_compose_service="api"}'
+        values: "0x6 stale"
+      - series: 'container_last_seen{name="api", id="/docker/new", container_label_com_docker_compose_project="app", container_label_com_docker_compose_service="api"}'
+        values: "_x6 420+60x6"
+      - series: 'container_start_time_seconds{name="api", id="/docker/new", container_label_com_docker_compose_project="app", container_label_com_docker_compose_service="api"}'
+        values: "_x6 400x6"
+      # A one-off `docker run` container without Compose labels.
+      - series: 'container_last_seen{name="eager_turing", id="/docker/b"}'
+        values: "0+60x6 stale"
+      - series: 'container_start_time_seconds{name="eager_turing", id="/docker/b"}'
+        values: "0x6 stale"
+      # A Compose container that lived for 2 minutes (a one-off `compose run`).
+      - series: 'container_last_seen{name="app-migrate-run", id="/docker/c", container_label_com_docker_compose_project="app", container_label_com_docker_compose_service="migrate"}'
+        values: "240+60x2 stale"
+      - series: 'container_start_time_seconds{name="app-migrate-run", id="/docker/c", container_label_com_docker_compose_project="app", container_label_com_docker_compose_service="migrate"}'
+        values: "240x2 stale"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ContainerStopped
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: ContainerStopped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: db
+              container_label_com_docker_compose_project: app
+              container_label_com_docker_compose_service: db
+            exp_annotations:
+              summary: "Container db stopped"
+              description: "db has not been seen for 2m 0s."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containerstopped"
+
+  - name: Memory near the limit fires; containers without a limit are ignored
+    interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{name="cache"}'
+        values: "95x10"
+      - series: 'container_spec_memory_limit_bytes{name="cache"}'
+        values: "100x10"
+      - series: 'container_memory_working_set_bytes{name="unlimited"}'
+        values: "1000x10"
+      - series: 'container_spec_memory_limit_bytes{name="unlimited"}'
+        values: "0x10"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ContainerMemoryNearLimit
+        exp_alerts:
+          - exp_labels: {severity: warning, name: cache}
+            exp_annotations:
+              summary: "Container cache uses over 90% of its memory limit"
+              description: "cache is at 95% of its limit; it will be OOM-killed when it reaches it."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containermemorynearlimit"
+
+  - name: CPU-bound throttling fires, throttled bursts at low usage do not
+    interval: 1m
+    input_series:
+      # Limit 0.5 cores, using 0.45 and throttled in 60% of periods: CPU-bound.
+      - series: 'container_cpu_cfs_periods_total{name="worker", id="/docker/w"}'
+        values: "0+600x30"
+      - series: 'container_cpu_cfs_throttled_periods_total{name="worker", id="/docker/w"}'
+        values: "0+360x30"
+      - series: 'container_cpu_usage_seconds_total{name="worker", id="/docker/w", cpu="total"}'
+        values: "0+27x30"
+      - series: 'container_spec_cpu_quota{name="worker", id="/docker/w"}'
+        values: "50000x30"
+      # Limit 0.25 cores, using 0.02 but throttled in 60% of the periods it ran in.
+      - series: 'container_cpu_cfs_periods_total{name="exporter", id="/docker/e"}'
+        values: "0+600x30"
+      - series: 'container_cpu_cfs_throttled_periods_total{name="exporter", id="/docker/e"}'
+        values: "0+360x30"
+      - series: 'container_cpu_usage_seconds_total{name="exporter", id="/docker/e", cpu="total"}'
+        values: "0+1.2x30"
+      - series: 'container_spec_cpu_quota{name="exporter", id="/docker/e"}'
+        values: "25000x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ContainerCpuThrottled
+        exp_alerts: []
+      - eval_time: 21m
+        alertname: ContainerCpuThrottled
+        exp_alerts:
+          - exp_labels: {severity: warning, name: worker, id: /docker/w}
+            exp_annotations:
+              summary: "Container worker is CPU-throttled"
+              description: "60% of scheduling periods hit the CPU limit for 15 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containercputhrottled"

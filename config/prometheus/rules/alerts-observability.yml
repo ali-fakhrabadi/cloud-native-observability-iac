@@ -1,0 +1,65 @@
+# Meta-monitoring: the monitoring pipeline itself.
+groups:
+  - name: observability
+    rules:
+      # Always firing. A receiver that stops getting it knows the alerting pipeline is
+      # broken (dead man's switch); Alertmanager routes it separately.
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Alerting pipeline heartbeat"
+          description: "Always firing while Prometheus evaluates rules and Alertmanager delivers notifications."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#watchdog"
+
+      - alert: PrometheusRuleEvaluationFailures
+        expr: increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus fails to evaluate rule group {{ $labels.rule_group }}"
+          description: "Alerts in this group cannot fire while evaluation fails."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#prometheusruleevaluationfailures"
+
+      - alert: PrometheusNotificationsFailing
+        expr: rate(prometheus_notifications_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus cannot deliver alerts to Alertmanager"
+          description: "Alerts fire but do not reach Alertmanager ({{ $labels.alertmanager }})."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#prometheusnotificationsfailing"
+
+      - alert: AlertmanagerNotificationsFailing
+        expr: rate(alertmanager_notifications_failed_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager cannot deliver {{ $labels.integration }} notifications"
+          description: "Notifications through {{ $labels.integration }} have been failing for 5 minutes."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#alertmanagernotificationsfailing"
+
+      - alert: LogsDropped
+        expr: |
+          sum(rate(loki_write_dropped_entries_total[5m])) > 0
+            or sum(rate(loki_discarded_samples_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Log lines are being dropped before they reach Loki"
+          description: "Alloy dropped or Loki rejected log entries for 5 minutes."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#logsdropped"
+
+      - alert: AlloyComponentUnhealthy
+        expr: alloy_component_controller_running_components{health_type!="healthy"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | humanize }} Alloy component(s) are {{ $labels.health_type }}"
+          description: "Part of the log pipeline is not running; check the Alloy UI or logs."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#alloycomponentunhealthy"

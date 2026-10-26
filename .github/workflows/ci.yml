@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint YAML and shell scripts
+    name: Lint YAML, shell, dashboards and runbooks
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -36,6 +36,12 @@ jobs:
       - name: shellcheck
         run: shellcheck scripts/*.sh
 
+      - name: Dashboards match their generator
+        run: python3 tools/dashboards/build.py --check
+
+      - name: Every alert has a runbook
+        run: python3 scripts/check_runbooks.py
+
   validate:
     name: Validate configuration with the pinned binaries
     runs-on: ubuntu-24.04
@@ -47,6 +53,9 @@ jobs:
 
       - name: Compose, promtool, amtool, Loki and Alloy checks
         run: make validate
+
+      - name: Alert rule unit tests and Alertmanager routing tests
+        run: make test-rules
 
   smoke:
     name: Start the stack and test it end to end
@@ -66,6 +75,9 @@ jobs:
 
       - name: Smoke test
         run: make smoke
+
+      - name: Every dashboard query runs against the live stack
+        run: make check-dashboards
 
       - name: Diagnostics
         if: failure()

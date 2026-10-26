@@ -6,6 +6,9 @@ Verifies, from the Docker host:
 * Grafana is healthy, its provisioned datasources answer their health checks, and the
   admin password from ./secrets works;
 * logs flow from Docker through Alloy into Loki (queried through Grafana);
+* alert rules load without errors in Prometheus and Loki, and the always-firing Watchdog
+  travels Prometheus -> Alertmanager -> alert-sink -> Loki;
+* the three dashboards are provisioned;
 * Node Exporter and Grafana's /metrics refuse requests without credentials;
 * the Docker API proxy refuses writes and endpoints it does not allow.
 
@@ -136,6 +139,35 @@ def main() -> int:
                 problems.append(f"{name} /metrics without credentials -> {status}, expected 401")
         return "; ".join(problems) or None
 
+    def prometheus_rules() -> str | None:
+        groups = get_json(f"{prometheus}/api/v1/rules")["data"]["groups"]
+        rules = [rule for group in groups for rule in group["rules"]]
+        broken = [rule["name"] for rule in rules if rule.get("health") != "ok"]
+        if len(rules) < 30 or broken:
+            return f"{len(rules)} rules loaded, unhealthy: {broken}"
+        return None
+
+    def loki_rules() -> str | None:
+        url = f"{grafana}/api/datasources/proxy/uid/loki/prometheus/api/v1/rules"
+        groups = get_json(url, auth=admin)["data"]["groups"]
+        rules = [rule for group in groups for rule in group["rules"]]
+        broken = [rule["name"] for rule in rules if rule.get("health") != "ok"]
+        return None if rules and not broken else f"{len(rules)} log rules, unhealthy: {broken}"
+
+    def watchdog_delivered() -> str | None:
+        """Prometheus -> Alertmanager -> alert-sink -> Alloy -> Loki, end to end."""
+        query = urllib.parse.urlencode(
+            {"query": 'sum(count_over_time({compose_service="alert-sink"} |= "\\"alertname\\":\\"Watchdog\\"" [15m]))'}
+        )
+        url = f"{grafana}/api/datasources/proxy/uid/loki/loki/api/v1/query?{query}"
+        result = get_json(url, auth=admin)["data"]["result"]
+        return None if result and float(result[0]["value"][1]) > 0 else "no Watchdog notification logged yet"
+
+    def dashboards_provisioned() -> str | None:
+        found = {d["uid"] for d in json.loads(request(f"{grafana}/api/search?type=dash-db", auth=admin)[1])}
+        missing = sorted({"linux-docker-overview", "sentinel-service", "observability-stack"} - found)
+        return f"missing dashboards: {missing}" if missing else None
+
     def docker_proxy_read_only() -> str | None:
         """Ask the proxy, from inside a container on its network, for things it must refuse."""
         problems = []
@@ -150,6 +182,8 @@ def main() -> int:
                     "exec", "-T", "cadvisor", "wget", "-q", "-O-", *extra,
                     f"http://docker-socket-proxy:2375{path}",
                 ],
+                # Never read the caller's stdin (a piped script would be swallowed).
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -167,7 +201,11 @@ def main() -> int:
         ("Alertmanager discovered by Prometheus", alertmanager_discovered),
         (f"Scrape targets up ({', '.join(sorted(expected_jobs))})", prometheus_targets),
         ("Grafana datasources provisioned and healthy", grafana_datasources),
+        ("Grafana dashboards provisioned", dashboards_provisioned),
         ("Container logs reach Loki through Alloy", logs_in_loki),
+        ("Prometheus alerting and recording rules loaded without errors", prometheus_rules),
+        ("Loki log-based alert rules loaded", loki_rules),
+        ("Watchdog alert delivered end to end (Prometheus, Alertmanager, alert-sink, Loki)", watchdog_delivered),
         ("Exporters reject requests without credentials", unauthenticated_rejected),
         ("Docker API proxy refuses writes and unlisted endpoints", docker_proxy_read_only),
     ]

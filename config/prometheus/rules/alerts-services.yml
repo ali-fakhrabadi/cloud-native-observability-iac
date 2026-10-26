@@ -1,0 +1,75 @@
+# Service alerts: scrape targets and the Sentinel API (django-prometheus metrics plus
+# Sentinel's own outbox and webhook gauges).
+groups:
+  - name: targets
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} target {{ $labels.instance }} is down"
+          description: "Prometheus has not been able to scrape {{ $labels.instance }} for 2 minutes."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#targetdown"
+
+  - name: sentinel
+    rules:
+      # The 5xx spike alert: a ratio, so it scales with traffic, with a minimum request
+      # rate so that one failed request at night does not page anyone.
+      - alert: SentinelHighErrorRate
+        expr: |
+          job:django_http_responses_5xx:ratio_rate5m{job="sentinel"} > 0.05
+            and job:django_http_responses:rate5m{job="sentinel"} > 0.2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Sentinel answers {{ $value | humanizePercentage }} of requests with 5xx"
+          description: "More than 5% of Sentinel responses have been server errors for 5 minutes."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentinelhigherrorrate"
+
+      - alert: SentinelHighLatency
+        expr: |
+          job:django_http_request_duration_seconds:p95_rate5m{job="sentinel"} > 1
+            and job:django_http_responses:rate5m{job="sentinel"} > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sentinel p95 latency is {{ $value | humanizeDuration }}"
+          description: "The 95th percentile of request duration has been above 1 second for 10 minutes."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentinelhighlatency"
+
+      - alert: SentinelOutboxBacklog
+        expr: sentinel_outbox_oldest_pending_age_seconds{job="sentinel"} > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sentinel webhook outbox is {{ $value | humanizeDuration }} behind"
+          description: "The oldest undispatched security event is over 5 minutes old; alert webhooks are delayed."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentineloutboxbacklog"
+
+      # sentinel_webhook_deliveries is a gauge of deliveries per status, so an increase
+      # of the failed or exhausted count means new final failures.
+      - alert: SentinelWebhookDeliveriesFailing
+        expr: sum by (job) (delta(sentinel_webhook_deliveries{job="sentinel", status=~"failed|exhausted"}[30m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sentinel webhook deliveries are failing permanently"
+          description: "Deliveries failed or exhausted their retries in the last 30 minutes."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentinelwebhookdeliveriesfailing"
+
+      - alert: SentinelIngestionRejections
+        expr: |
+          sum by (job) (rate(sentinel_audit_events_ingested_total{job="sentinel", result="rejected"}[10m]))
+            / sum by (job) (rate(sentinel_audit_events_ingested_total{job="sentinel"}[10m])) > 0.20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sentinel rejects {{ $value | humanizePercentage }} of ingested events"
+          description: "A producer is sending invalid audit events; they are not stored."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentinelingestionrejections"

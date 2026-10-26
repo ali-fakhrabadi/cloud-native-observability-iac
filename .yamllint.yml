@@ -2,8 +2,13 @@ extends: default
 
 rules:
   line-length:
-    max: 120
+    max: 150
     level: warning
+    # URLs (runbook links) cannot be wrapped.
+    allow-non-breakable-inline-mappings: true
+    # promtool test series are one label set per line and cannot be wrapped.
+    ignore: |
+      config/prometheus/tests/
   truthy:
     allowed-values: ["true", "false"]
     check-keys: false

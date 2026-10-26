@@ -1,0 +1,129 @@
+rule_files:
+  - ../rules/recording.yml
+  - ../rules/alerts-services.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: A target down for 2 minutes fires
+    interval: 1m
+    input_series:
+      - series: 'up{job="node", instance="host"}'
+        values: "1 1 0 0 0 0 0"
+      - series: 'up{job="loki", instance="loki:3100"}'
+        values: "1 1 0 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: TargetDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: TargetDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: node, instance: host}
+            exp_annotations:
+              summary: "node target host is down"
+              description: "Prometheus has not been able to scrape host for 2 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#targetdown"
+
+  - name: A 5xx spike under real traffic fires
+    interval: 1m
+    input_series:
+      # 9 successful and 1 failed request per second: 10% errors.
+      - series: 'django_http_responses_total_by_status_total{job="sentinel", status="200"}'
+        values: "0+540x20"
+      - series: 'django_http_responses_total_by_status_total{job="sentinel", status="500"}'
+        values: "0+60x20"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: SentinelHighErrorRate
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: SentinelHighErrorRate
+        exp_alerts:
+          - exp_labels: {severity: critical, job: sentinel}
+            exp_annotations:
+              summary: "Sentinel answers 10% of requests with 5xx"
+              description: "More than 5% of Sentinel responses have been server errors for 5 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentinelhigherrorrate"
+
+  - name: Errors at night-time traffic stay quiet
+    interval: 1m
+    input_series:
+      # One request every 10 seconds, half of them failing.
+      - series: 'django_http_responses_total_by_status_total{job="sentinel", status="200"}'
+        values: "0+3x20"
+      - series: 'django_http_responses_total_by_status_total{job="sentinel", status="503"}'
+        values: "0+3x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SentinelHighErrorRate
+        exp_alerts: []
+
+  - name: Slow responses fire after 10 minutes
+    interval: 1m
+    input_series:
+      # 10 requests per second, all between 1 and 2.5 seconds.
+      - series: 'django_http_responses_total_by_status_total{job="sentinel", status="200"}'
+        values: "0+600x20"
+      - series: 'django_http_requests_latency_seconds_by_view_method_bucket{job="sentinel", view="events", method="GET", le="0.5"}'
+        values: "0x20"
+      - series: 'django_http_requests_latency_seconds_by_view_method_bucket{job="sentinel", view="events", method="GET", le="1.0"}'
+        values: "0x20"
+      - series: 'django_http_requests_latency_seconds_by_view_method_bucket{job="sentinel", view="events", method="GET", le="2.5"}'
+        values: "0+600x20"
+      - series: 'django_http_requests_latency_seconds_by_view_method_bucket{job="sentinel", view="events", method="GET", le="+Inf"}'
+        values: "0+600x20"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: SentinelHighLatency
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: SentinelHighLatency
+        exp_alerts:
+          - exp_labels: {severity: warning, job: sentinel}
+            exp_annotations:
+              summary: "Sentinel p95 latency is 2.425s"
+              description: "The 95th percentile of request duration has been above 1 second for 10 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentinelhighlatency"
+
+  - name: Outbox backlog, failing webhooks and rejected events
+    interval: 1m
+    input_series:
+      - series: 'sentinel_outbox_oldest_pending_age_seconds{job="sentinel"}'
+        values: "400x30"
+      - series: 'sentinel_webhook_deliveries{job="sentinel", status="failed"}'
+        values: "1 1 1 2 2 2 2 2"
+      - series: 'sentinel_webhook_deliveries{job="sentinel", status="exhausted"}'
+        values: "0x7"
+      - series: 'sentinel_audit_events_ingested_total{job="sentinel", result="accepted"}'
+        values: "0+60x30"
+      - series: 'sentinel_audit_events_ingested_total{job="sentinel", result="rejected"}'
+        values: "0+60x30"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: SentinelOutboxBacklog
+        exp_alerts:
+          - exp_labels: {severity: warning, job: sentinel}
+            exp_annotations:
+              summary: "Sentinel webhook outbox is 6m 40s behind"
+              description: "The oldest undispatched security event is over 5 minutes old; alert webhooks are delayed."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentineloutboxbacklog"
+      - eval_time: 2m
+        alertname: SentinelWebhookDeliveriesFailing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: SentinelWebhookDeliveriesFailing
+        exp_alerts:
+          - exp_labels: {severity: warning, job: sentinel}
+            exp_annotations:
+              summary: "Sentinel webhook deliveries are failing permanently"
+              description: "Deliveries failed or exhausted their retries in the last 30 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentinelwebhookdeliveriesfailing"
+      - eval_time: 21m
+        alertname: SentinelIngestionRejections
+        exp_alerts:
+          - exp_labels: {severity: warning, job: sentinel}
+            exp_annotations:
+              summary: "Sentinel rejects 50% of ingested events"
+              description: "A producer is sending invalid audit events; they are not stored."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentinelingestionrejections"

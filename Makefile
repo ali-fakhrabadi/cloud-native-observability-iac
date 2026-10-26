@@ -16,11 +16,13 @@ SHELLCHECK_IMAGE := koalaman/shellcheck:v0.11.0
 TOOLS_IMAGE := observability-tools:local
 TOOLS := docker run --rm --volume "$(CURDIR):/work" --workdir /work $(TOOLS_IMAGE)
 CHECK := docker run --rm --volume "$(CURDIR)/config:/config:ro"
+AMTOOL_ROUTE := $(CHECK) --entrypoint amtool $(ALERTMANAGER_IMAGE) config routes test \
+	--config.file=/config/alertmanager/alertmanager.yml
 
 LOCK_IMAGE := python:3.12.15-slim-trixie
 UV_VERSION := 0.13.5
 
-.PHONY: help env secrets up down destroy ps logs reload smoke validate lint tools lock ci
+.PHONY: help env secrets up down destroy ps logs reload smoke check-dashboards dashboards validate test-rules lint tools lock ci
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_.-]+:.*## / {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -47,11 +49,18 @@ ps: ## Service status
 logs: ## Follow logs (SERVICE=grafana to filter)
 	$(COMPOSE) logs --follow --tail 100 $(SERVICE)
 
-reload: ## Re-read Prometheus and Alertmanager configuration without a restart
+reload: ## Apply configuration changes (SIGHUP where supported, restart elsewhere)
 	$(COMPOSE) kill --signal SIGHUP prometheus alertmanager
+	$(COMPOSE) restart loki alloy grafana alert-sink
 
 smoke: ## End-to-end check of the running stack
 	python3 scripts/smoke_test.py $(SMOKE_ARGS)
+
+check-dashboards: ## Run every dashboard query against the running stack
+	python3 scripts/check_dashboards.py $(DASHBOARD_ARGS)
+
+dashboards: ## Regenerate Grafana dashboards from tools/dashboards/build.py
+	python3 tools/dashboards/build.py
 
 validate: ## Validate Compose, Prometheus, Alertmanager, Loki and Alloy configuration
 	$(COMPOSE) config --quiet
@@ -62,9 +71,18 @@ validate: ## Validate Compose, Prometheus, Alertmanager, Loki and Alloy configur
 	$(CHECK) $(LOKI_IMAGE) -config.file=/config/loki/loki.yml -verify-config
 	$(CHECK) $(ALLOY_IMAGE) validate /config/alloy/config.alloy
 
-lint: tools ## YAML and shell linting
+test-rules: ## Unit-test alert rules (promtool) and Alertmanager routing (amtool)
+	$(CHECK) --entrypoint promtool $(PROMETHEUS_IMAGE) test rules $$(cd config && ls prometheus/tests/*.test.yml | sed "s|^|/config/|")
+	@$(AMTOOL_ROUTE) --verify.receivers=heartbeat alertname=Watchdog severity=none
+	@$(AMTOOL_ROUTE) --verify.receivers=default alertname=TargetDown severity=critical
+	@$(AMTOOL_ROUTE) --verify.receivers=default alertname=HostHighCpuUsage severity=warning
+	@echo "routing tests passed"
+
+lint: tools ## YAML, shell, dashboard and runbook checks
 	$(TOOLS) yamllint --strict .
 	docker run --rm --volume "$(CURDIR):/mnt:ro" --workdir /mnt $(SHELLCHECK_IMAGE) scripts/*.sh
+	$(TOOLS) python3 tools/dashboards/build.py --check
+	$(TOOLS) python3 scripts/check_runbooks.py
 
 tools: ## Build the linting image (PIP_INDEX_URL=... for a PyPI mirror)
 	docker build --quiet --tag $(TOOLS_IMAGE) $(if $(PIP_INDEX_URL),--build-arg PIP_INDEX_URL=$(PIP_INDEX_URL)) tools > /dev/null
@@ -77,4 +95,4 @@ lock: ## Re-resolve and hash-pin tools/requirements.txt
 		--python-platform x86_64-unknown-linux-gnu --custom-compile-command "make lock" \
 		requirements.in --output-file requirements.txt'
 
-ci: lint validate ## Static checks that CI runs before the smoke test
+ci: lint validate test-rules ## Static checks that CI runs before the smoke test

@@ -54,3 +54,15 @@ query_range:
 
 analytics:
   reporting_enabled: false
+
+# Log-based alerts. Rules live in /etc/loki/rules/<tenant>/; with auth disabled the
+# tenant is "fake". Alerts go to the same Alertmanager as Prometheus' alerts.
+ruler:
+  alertmanager_url: http://alertmanager:9093
+  enable_api: true
+  evaluation_interval: 1m
+  rule_path: /loki/ruler-scratch
+  storage:
+    type: local
+    local:
+      directory: /etc/loki/rules

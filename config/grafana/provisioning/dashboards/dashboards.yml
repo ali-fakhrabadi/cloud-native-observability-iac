@@ -1,0 +1,13 @@
+# Dashboards are files in this repository. The folder structure under
+# config/grafana/dashboards becomes Grafana folders; UI edits cannot be saved over them.
+apiVersion: 1
+
+providers:
+  - name: repository
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: true

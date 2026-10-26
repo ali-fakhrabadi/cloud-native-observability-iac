@@ -1,0 +1,31 @@
+# Log-based alerts evaluated by Loki's ruler (LogQL). They rely on the `level` label that
+# Alloy normalizes for every container (debug, info, warn, error, fatal).
+groups:
+  - name: logs
+    interval: 1m
+    rules:
+      - alert: ContainerErrorLogBurst
+        expr: |
+          sum by (compose_project, compose_service) (
+            count_over_time({level=~"error|fatal"}[5m])
+          ) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.compose_project }}/{{ $labels.compose_service }} logs many errors"
+          description: "{{ $value }} error or fatal log lines in 5 minutes."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containererrorlogburst"
+
+      - alert: SentinelErrorLogs
+        expr: |
+          sum by (compose_service) (
+            count_over_time({compose_project="sentinel", level=~"error|fatal"}[5m])
+          ) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sentinel {{ $labels.compose_service }} logs errors"
+          description: "{{ $value }} error log lines in 5 minutes; search Loki by request_id for details."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#sentinelerrorlogs"

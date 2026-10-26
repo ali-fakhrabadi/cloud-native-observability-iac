@@ -1,0 +1,3 @@
+# No plugins are provisioned (the stack starts without internet access). The directory
+# exists so Grafana does not log a provisioning error.
+apiVersion: 1

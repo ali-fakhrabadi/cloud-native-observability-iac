@@ -1,13 +1,61 @@
-# Alertmanager routing. Phase 1 keeps a single silent receiver so the pipeline can be
-# verified end to end; severity routing, inhibition and notification receivers follow
-# together with the alert rules.
+# Alertmanager routing: severity decides how fast and how often people are notified, the
+# Watchdog heartbeat has its own route, and related alerts are deduplicated by
+# inhibition. Receiver URLs are read from files (Docker secrets), never from this file.
+
+global:
+  resolve_timeout: 5m
 
 route:
-  receiver: blackhole
-  group_by: [alertname, severity]
+  receiver: default
+  group_by: [alertname, job, instance]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
+  routes:
+    # Dead man's switch: re-sent every 5 minutes so a receiver can notice silence.
+    - matchers: ['alertname = "Watchdog"']
+      receiver: heartbeat
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 5m
+
+    - matchers: ['severity = "critical"']
+      receiver: default
+      group_wait: 10s
+      group_interval: 2m
+      repeat_interval: 1h
+
+    - matchers: ['severity = "warning"']
+      receiver: default
+      repeat_interval: 4h
+
+inhibit_rules:
+  # Disk nearly full: the warning and the trend alert add nothing.
+  - source_matchers: ['alertname = "HostDiskSpaceCritical"']
+    target_matchers: ['alertname =~ "HostDiskSpaceLow|HostDiskWillFillIn24Hours"']
+    equal: [instance, mountpoint]
+  # A Sentinel failing with 5xx is also slow; one page is enough.
+  - source_matchers: ['alertname = "SentinelHighErrorRate"']
+    target_matchers: ['alertname = "SentinelHighLatency"']
+    equal: [job]
+  # When a target cannot be scraped, alerts derived from its stale data are noise.
+  - source_matchers: ['alertname = "TargetDown"', 'job = "sentinel"']
+    target_matchers: ['alertname =~ "Sentinel.+"']
+    equal: [job]
+  - source_matchers: ['alertname = "TargetDown"', 'job = "node"']
+    target_matchers: ['alertname =~ "Host.+"']
+    equal: [instance]
 
 receivers:
-  - name: blackhole
+  - name: default
+    webhook_configs:
+      # Defaults to the bundled alert-sink; point it at a real system (for example the
+      # AIOps incident engine or a chat bridge) by changing the secret file.
+      - url_file: /run/secrets/alertmanager_webhook_url
+        send_resolved: true
+        max_alerts: 50
+
+  - name: heartbeat
+    webhook_configs:
+      - url: http://alert-sink:9099/heartbeat
+        send_resolved: false

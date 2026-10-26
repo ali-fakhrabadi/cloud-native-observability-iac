@@ -1,0 +1,44 @@
+# Recording rules: expressions used by both alerts and dashboards are computed once, with
+# names following the Prometheus convention level:metric:operations.
+groups:
+  - name: host.recording
+    rules:
+      - record: instance:node_cpu_utilisation:ratio_rate5m
+        expr: 1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))
+
+      - record: instance:node_memory_utilisation:ratio
+        expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+
+      # Free space per real filesystem; pseudo and container filesystems are excluded.
+      - record: instance:node_filesystem_avail:ratio
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs|fuse.*"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs|fuse.*"}
+
+  - name: containers.recording
+    rules:
+      # CPU cores used per container (1 = one full core).
+      - record: name:container_cpu_usage:rate5m
+        expr: |
+          sum by (name, container_label_com_docker_compose_project, container_label_com_docker_compose_service) (
+            rate(container_cpu_usage_seconds_total{name!=""}[5m])
+          )
+
+  - name: sentinel.recording
+    rules:
+      - record: job:django_http_responses:rate5m
+        expr: sum by (job) (rate(django_http_responses_total_by_status_total[5m]))
+
+      # 0 rather than "no data" while a service has traffic but no errors.
+      - record: job:django_http_responses_5xx:rate5m
+        expr: |
+          sum by (job) (rate(django_http_responses_total_by_status_total{status=~"5.."}[5m]))
+            or sum by (job) (rate(django_http_responses_total_by_status_total[5m])) * 0
+
+      - record: job:django_http_responses_5xx:ratio_rate5m
+        expr: job:django_http_responses_5xx:rate5m / job:django_http_responses:rate5m
+
+      - record: job:django_http_request_duration_seconds:p95_rate5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (job, le) (rate(django_http_requests_latency_seconds_by_view_method_bucket[5m])))

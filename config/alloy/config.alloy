@@ -1,5 +1,6 @@
-// Grafana Alloy: collects the logs of every container on this host and ships them to Loki.
-// Docker metadata comes through the read-only socket proxy, never the socket itself.
+// Grafana Alloy: collects the logs of every container on this host, gives them a common
+// `level` label and ships them to Loki. Docker metadata comes through the read-only API
+// proxy, never the socket itself.
 
 logging {
   level  = "info"
@@ -11,7 +12,7 @@ discovery.docker "containers" {
   refresh_interval = "15s"
 }
 
-// Turn Docker metadata into a small, stable label set (low cardinality for Loki).
+// A small, stable label set: Loki performs best with few labels of low cardinality.
 discovery.relabel "containers" {
   targets = []
 
@@ -44,7 +45,74 @@ loki.source.docker "containers" {
   labels        = {
     host = sys.env("INSTANCE_NAME"),
   }
+  forward_to = [loki.process.containers.receiver]
+}
+
+loki.process "containers" {
   forward_to = [loki.write.local.receiver]
+
+  // Successful Docker API calls from the proxy are one line per request and say
+  // nothing; refused or failed calls are kept.
+  stage.match {
+    selector = "{compose_service=\"docker-socket-proxy\"}"
+
+    stage.drop {
+      expression          = "dockerbackend/\\S+ \\S+ 2\\d\\d "
+      drop_counter_reason = "proxy_access_ok"
+    }
+  }
+
+  // JSON (Sentinel, Alloy, alert-sink) and logfmt (Prometheus, Alertmanager, Loki,
+  // Grafana, Node Exporter) both name the field `level`.
+  stage.regex {
+    expression = "(?i)(?:\"level\"\\s*:\\s*\"|\\blevel=)(?P<level>[a-z]+)"
+  }
+
+  // cAdvisor uses glog: the first letter of the line is the severity (I, W, E, F).
+  stage.match {
+    selector = "{compose_service=\"cadvisor\"}"
+
+    stage.regex {
+      expression = "^(?P<level>[IWEF])\\d{4} "
+    }
+  }
+
+  // PostgreSQL: "2026-10-26 10:33:17.098 UTC [128846] ERROR:  ..."
+  stage.match {
+    selector = "{compose_service=~\"postgres.*\"}"
+
+    stage.regex {
+      expression = "^\\S+ \\S+ \\S+ \\[\\d+\\] (?P<level>[A-Z]+\\d?):"
+    }
+  }
+
+  // One vocabulary for every source: debug, info, warn, error, fatal.
+  stage.template {
+    source   = "level"
+    template = "{{ $l := ToLower .Value }}{{ if eq $l \"warn\" \"warning\" \"w\" }}warn{{ else if eq $l \"error\" \"err\" \"e\" }}error{{ else if eq $l \"fatal\" \"critical\" \"crit\" \"panic\" \"f\" }}fatal{{ else if eq $l \"debug\" \"debug1\" \"debug2\" \"trace\" \"d\" }}debug{{ else }}info{{ end }}"
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  // Sentinel's request ID and logger stay searchable without becoming labels (each
+  // request ID would otherwise be a new stream).
+  stage.json {
+    expressions = {
+      request_id = "request_id",
+      logger     = "logger",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      request_id = "",
+      logger     = "",
+    }
+  }
 }
 
 loki.write "local" {

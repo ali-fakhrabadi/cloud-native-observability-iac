@@ -1,0 +1,72 @@
+# Container alerts from cAdvisor, aggregated by container name (a recreated container
+# keeps its name but gets a new ID).
+groups:
+  - name: containers
+    rules:
+      - alert: ContainerRestarting
+        expr: changes(container_start_time_seconds{name!=""}[15m]) >= 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} is restarting repeatedly"
+          description: "{{ $labels.name }} started {{ $value | humanize }} times in 15 minutes (crash loop)."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containerrestarting"
+
+      # A Compose service container that ran for at least 5 minutes and has not been seen
+      # for a minute. One-off containers (`docker run --rm`, CI tools) never qualify. It
+      # stays active for up to 10 minutes after the container disappears.
+      - alert: ContainerStopped
+        expr: |
+          (
+            time() - max by (name, container_label_com_docker_compose_project, container_label_com_docker_compose_service) (
+              max_over_time(container_last_seen{name!="", container_label_com_docker_compose_project!=""}[10m])
+            ) > 60
+          )
+          and on (name)
+          (
+            max by (name) (
+              max_over_time(container_last_seen{name!=""}[10m])
+                - max_over_time(container_start_time_seconds{name!=""}[10m])
+            ) > 300
+          )
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} stopped"
+          description: "{{ $labels.name }} has not been seen for {{ $value | humanizeDuration }}."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containerstopped"
+
+      - alert: ContainerMemoryNearLimit
+        expr: |
+          container_memory_working_set_bytes{name!=""}
+            / (container_spec_memory_limit_bytes{name!=""} > 0) > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} uses over 90% of its memory limit"
+          description: "{{ $labels.name }} is at {{ $value | humanizePercentage }} of its limit; it will be OOM-killed when it reaches it."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containermemorynearlimit"
+
+      # Throttling alone is noisy: with a small limit, every short burst is throttled
+      # even at low average usage. Fire only when the container is also using over 80%
+      # of its limit, i.e. it is CPU-bound. The quota is in microseconds per 100 ms
+      # CFS period (Docker's default period).
+      - alert: ContainerCpuThrottled
+        expr: |
+          (
+            rate(container_cpu_cfs_throttled_periods_total{name!=""}[5m])
+              / rate(container_cpu_cfs_periods_total{name!=""}[5m]) > 0.50
+          )
+          and on (id)
+          (
+            sum by (id) (rate(container_cpu_usage_seconds_total{name!=""}[5m]))
+              / on (id) (container_spec_cpu_quota{name!=""} / 100000) > 0.80
+          )
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} is CPU-throttled"
+          description: "{{ $value | humanizePercentage }} of scheduling periods hit the CPU limit for 15 minutes."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containercputhrottled"

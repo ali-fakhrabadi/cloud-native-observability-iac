@@ -42,11 +42,22 @@ create_empty() {
     echo "created  $file (empty: $2)"
 }
 
+create_default() {
+    local file="$DIR/$1"
+    if [[ -s "$file" ]]; then
+        echo "kept     $file"
+        return
+    fi
+    printf '%s' "$2" > "$file"
+    echo "created  $file ($3)"
+}
+
 create_password grafana_admin_password
 create_password grafana_metrics_password
 create_password node_exporter_password
 create_empty sentinel_metrics_token "set it to Sentinel's METRICS_AUTH_TOKEN to monitor Sentinel"
-create_empty alertmanager_webhook_url "set it to a receiver URL to deliver notifications"
+create_default alertmanager_webhook_url "http://alert-sink:9099/alerts" \
+    "the bundled alert-sink; replace with a real receiver URL"
 
 # Node Exporter only accepts bcrypt hashes in its web config.
 web_config="$DIR/node_exporter_web.yml"

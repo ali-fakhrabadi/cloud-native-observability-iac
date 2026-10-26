@@ -10,4 +10,4 @@ this directory except this file is ignored by Git.
 | `node_exporter_password` | Basic auth on Node Exporter (Prometheus scrapes it) |
 | `node_exporter_web.yml` | Node Exporter web config holding the bcrypt hash of that password |
 | `sentinel_metrics_token` | Bearer token for scraping the Sentinel service (empty if not monitored) |
-| `alertmanager_webhook_url` | Where Alertmanager posts alerts (empty until a receiver is configured) |
+| `alertmanager_webhook_url` | Where Alertmanager posts alerts; defaults to the bundled `alert-sink` |

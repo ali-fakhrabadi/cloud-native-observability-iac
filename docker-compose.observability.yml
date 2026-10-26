@@ -76,9 +76,34 @@ services:
       resources:
         limits: {cpus: "0.25", memory: 128M}
 
+  # Default notification receiver: logs every notification as JSON (and so into Loki).
+  # Replace secrets/alertmanager_webhook_url to deliver to a real system instead.
+  alert-sink:
+    <<: *hardened
+    image: python:3.12.15-slim-trixie
+    user: "65534:65534"
+    command: ["python", "-u", "/opt/alert-sink/alert_sink.py"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./tools/alert-sink:/opt/alert-sink:ro
+    networks: [backend]
+    healthcheck:
+      # A TCP connect is enough and starts much faster than importing urllib.
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9099), 3).close()"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits: {cpus: "0.25", memory: 64M}
+
   loki:
     <<: *hardened
     image: grafana/loki:3.7.9
+    # Time to flush the write-ahead log on shutdown; the default 10 s cut it off.
+    stop_grace_period: 30s
     command: ["-config.file=/etc/loki/loki.yml"]
     volumes:
       - ./config/loki:/etc/loki:ro
@@ -94,6 +119,7 @@ services:
   alloy:
     <<: *hardened
     image: grafana/alloy:v1.21.2
+    stop_grace_period: 20s
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
@@ -141,6 +167,7 @@ services:
       GF_METRICS_BASIC_AUTH_PASSWORD__FILE: /run/secrets/grafana_metrics_password
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     tmpfs: ["/tmp"]
     secrets: [grafana_admin_password, grafana_metrics_password]
@@ -175,7 +202,7 @@ services:
     # No healthcheck: every path requires basic auth; Prometheus' `up` metric covers it.
     deploy:
       resources:
-        limits: {cpus: "0.25", memory: 64M}
+        limits: {cpus: "0.5", memory: 64M}
 
   cadvisor:
     <<: *hardened
