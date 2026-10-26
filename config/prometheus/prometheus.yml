@@ -1,0 +1,77 @@
+# Prometheus configuration. Secrets are read from files mounted by Docker
+# (/run/secrets/...), never written into this file.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    stack: observability
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # --- The observability stack itself ------------------------------------------------
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+
+  - job_name: grafana
+    basic_auth:
+      username: prometheus
+      password_file: /run/secrets/grafana_metrics_password
+    static_configs:
+      - targets: ["grafana:3000"]
+
+  # --- The host and its containers -------------------------------------------------------
+  - job_name: node
+    basic_auth:
+      username: prometheus
+      password_file: /run/secrets/node_exporter_password
+    static_configs:
+      # Node Exporter shares the host's network namespace; the container reaches it
+      # through Docker's host gateway.
+      - targets: ["host.docker.internal:9100"]
+    relabel_configs:
+      - target_label: instance
+        replacement: host
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      # Per-process and per-task series add cardinality without informing any panel or alert.
+      - source_labels: [__name__]
+        regex: container_(tasks_state|memory_failures_total|blkio_device_usage_total)
+        action: drop
+
+  # --- Monitored services -----------------------------------------------------------------
+  # Sentinel (github.com/ali-fakhrabadi/sentinel-iam-audit-service) exposes Prometheus
+  # metrics behind a bearer token. Targets come from targets/sentinel.yml, so the job is
+  # empty until a deployment declares where Sentinel runs.
+  - job_name: sentinel
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/sentinel_metrics_token
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/sentinel*.yml"]
+        refresh_interval: 1m

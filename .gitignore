@@ -1,0 +1,31 @@
+# Generated secrets and local overrides never leave the machine.
+.env
+secrets/*
+!secrets/README.md
+config/prometheus/targets/*.yml
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.auto.tfvars
+terraform.tfvars
+!**/terraform.tfvars.example
+.terraform.tfstate.lock.info
+
+# Ansible / Molecule
+*.retry
+.ansible/
+.cache/
+
+# Python tooling
+__pycache__/
+.venv/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

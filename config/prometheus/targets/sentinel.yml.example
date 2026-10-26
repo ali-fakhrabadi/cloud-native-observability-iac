@@ -1,0 +1,7 @@
+# Copy to sentinel.yml (ignored by Git) to scrape a Sentinel deployment. This .example
+# file is not matched by the job's `sentinel*.yml` glob. The address must be one of
+# Sentinel's DJANGO_ALLOWED_HOSTS, because Django checks the Host header.
+- targets: ["192.0.2.10:8000"]
+  labels:
+    service: sentinel
+    environment: lab

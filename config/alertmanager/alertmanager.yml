@@ -1,0 +1,13 @@
+# Alertmanager routing. Phase 1 keeps a single silent receiver so the pipeline can be
+# verified end to end; severity routing, inhibition and notification receivers follow
+# together with the alert rules.
+
+route:
+  receiver: blackhole
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: blackhole

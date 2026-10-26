@@ -1,0 +1,32 @@
+# Weekly update PRs for pinned GitHub Actions and container images. Python tooling is
+# upgraded deliberately with `make lock`.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      grafana-stack:
+        patterns: ["grafana/*"]
+      prometheus-stack:
+        patterns: ["prom/*"]
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: docker
+    directory: /tools
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build

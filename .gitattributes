@@ -1,0 +1,6 @@
+# LF everywhere: configs and shell scripts run inside Linux containers and hosts,
+# even when the repository is checked out on Windows.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary

@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint YAML and shell scripts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install hash-pinned tooling
+        run: pip install --require-hashes -r tools/requirements.txt
+
+      - name: yamllint
+        run: yamllint --strict .
+
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+  validate:
+    name: Validate configuration with the pinned binaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compose, promtool, amtool, Loki and Alloy checks
+        run: make validate
+
+  smoke:
+    name: Start the stack and test it end to end
+    needs: [lint, validate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Generate configuration and secrets
+        run: make env secrets
+
+      - name: Start the stack
+        run: make up
+
+      - name: Smoke test
+        run: make smoke
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          docker compose -f docker-compose.observability.yml ps --all
+          docker compose -f docker-compose.observability.yml logs --tail 80
+
+      - name: Tear down
+        if: always()
+        run: make destroy

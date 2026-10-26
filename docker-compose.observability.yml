@@ -1,0 +1,251 @@
+# Observability stack: metrics (Prometheus, Node Exporter, cAdvisor), logs (Alloy, Loki),
+# alerting (Alertmanager) and dashboards (Grafana), provisioned entirely from this repository.
+#
+#   make secrets && make up
+#
+# Networks:
+#   backend     internal, no internet: every service talks to the others here
+#   egress      Prometheus (scrapes the host and remote targets), Alertmanager (sends
+#               notifications) and Grafana (published UI port)
+#   docker-api  internal: only Alloy and cAdvisor reach the read-only Docker API proxy
+#
+# Only Grafana is meant to be reachable from other machines; Prometheus and Alertmanager
+# are published on 127.0.0.1 for SSH tunnels. Node Exporter runs in the host network (it
+# must, to report host network interfaces) and requires basic auth.
+
+name: observability
+
+x-hardened: &hardened
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  prometheus:
+    <<: *hardened
+    image: prom/prometheus:v3.15.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-15d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-5GB}
+      - --web.external-url=${PROMETHEUS_EXTERNAL_URL:-http://localhost:9090}
+      - --web.route-prefix=/
+    volumes:
+      - ./config/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    secrets: [grafana_metrics_password, node_exporter_password, sentinel_metrics_token]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["${PROMETHEUS_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_HTTP_PORT:-9090}:9090"]
+    networks: [backend, egress]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 1G}
+
+  alertmanager:
+    <<: *hardened
+    image: prom/alertmanager:v0.34.1
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.external-url=${ALERTMANAGER_EXTERNAL_URL:-http://localhost:9093}
+      # Single instance: no gossip mesh listening on the network.
+      - --cluster.listen-address=
+    volumes:
+      - ./config/alertmanager:/etc/alertmanager:ro
+      - alertmanager-data:/alertmanager
+    secrets: [alertmanager_webhook_url]
+    ports: ["${ALERTMANAGER_BIND_ADDRESS:-127.0.0.1}:${ALERTMANAGER_HTTP_PORT:-9093}:9093"]
+    networks: [backend, egress]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9093/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: {cpus: "0.25", memory: 128M}
+
+  loki:
+    <<: *hardened
+    image: grafana/loki:3.7.9
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./config/loki:/etc/loki:ro
+      - loki-data:/loki
+    tmpfs: ["/tmp"]
+    networks: [backend]
+    # Distroless image: no shell or HTTP client for a container health check. Readiness is
+    # checked from outside (Prometheus `up`, `make smoke`).
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 1G}
+
+  alloy:
+    <<: *hardened
+    image: grafana/alloy:v1.21.2
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - --disable-reporting
+      - /etc/alloy/config.alloy
+    environment:
+      INSTANCE_NAME: ${INSTANCE_NAME:-observability-lab}
+    volumes:
+      - ./config/alloy:/etc/alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    tmpfs: ["/tmp"]
+    networks: [backend, docker-api]
+    # The image defaults to root; its own `alloy` user (473) owns the data directory.
+    # No host mounts: Docker is read only through the proxy.
+    user: "473:473"
+    # Distroless image: no container health check, see loki.
+    depends_on:
+      loki: {condition: service_started}
+      docker-socket-proxy: {condition: service_started}
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 384M}
+
+  grafana:
+    <<: *hardened
+    image: grafana/grafana:13.2.4
+    environment:
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_SECURITY_COOKIE_SECURE: ${GRAFANA_COOKIE_SECURE:-false}
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_DEFAULT_THEME: dark
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # No plugin downloads at startup: the stack must start without internet access.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LOG_MODE: console
+      GF_METRICS_BASIC_AUTH_USERNAME: prometheus
+      GF_METRICS_BASIC_AUTH_PASSWORD__FILE: /run/secrets/grafana_metrics_password
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    tmpfs: ["/tmp"]
+    secrets: [grafana_admin_password, grafana_metrics_password]
+    ports: ["${GRAFANA_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_HTTP_PORT:-3000}:3000"]
+    networks: [backend, egress]
+    depends_on:
+      prometheus: {condition: service_healthy}
+      loki: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 512M}
+
+  node-exporter:
+    <<: *hardened
+    image: prom/node-exporter:v1.12.1
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=${NODE_EXPORTER_LISTEN_ADDRESS:-0.0.0.0:9100}
+      - --web.config.file=/run/secrets/node_exporter_web_config
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|run|sys|var/lib/docker/.+|var/lib/containers/.+)($|/)
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    secrets: [node_exporter_web_config]
+    # No healthcheck: every path requires basic auth; Prometheus' `up` metric covers it.
+    deploy:
+      resources:
+        limits: {cpus: "0.25", memory: 64M}
+
+  cadvisor:
+    <<: *hardened
+    image: ghcr.io/google/cadvisor:v0.60.6
+    command:
+      - --docker=tcp://docker-socket-proxy:2375
+      - --docker_only=true
+      - --housekeeping_interval=15s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service
+      - --enable_metrics=cpu,memory,network,diskIO
+    volumes:
+      - /:/rootfs:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks: [backend, docker-api]
+    depends_on:
+      docker-socket-proxy: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+
+  # Read-only view of the Docker API (containers, networks, info, events, version), so
+  # neither Alloy nor cAdvisor holds the Docker socket, which is equivalent to root on the host.
+  docker-socket-proxy:
+    <<: *hardened
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      NETWORKS: 1 # Alloy's Docker discovery labels targets with their networks
+      PING: 1
+      VERSION: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    tmpfs: ["/run", "/tmp"]
+    networks: [docker-api]
+    deploy:
+      resources:
+        limits: {cpus: "0.1", memory: 64M}
+
+networks:
+  backend:
+    internal: true
+  egress: {}
+  docker-api:
+    internal: true
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+  loki-data:
+  alloy-data:
+  grafana-data:
+
+# File secrets are bind-mounted read-only. `make secrets` creates them in ./secrets with
+# mode 0644 inside a 0700 directory: readable by any container user, invisible to other
+# users on the host.
+secrets:
+  grafana_admin_password: {file: ./secrets/grafana_admin_password}
+  grafana_metrics_password: {file: ./secrets/grafana_metrics_password}
+  node_exporter_password: {file: ./secrets/node_exporter_password}
+  node_exporter_web_config: {file: ./secrets/node_exporter_web.yml}
+  sentinel_metrics_token: {file: ./secrets/sentinel_metrics_token}
+  alertmanager_webhook_url: {file: ./secrets/alertmanager_webhook_url}

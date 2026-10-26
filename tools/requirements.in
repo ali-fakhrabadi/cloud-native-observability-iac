@@ -1,0 +1,2 @@
+# Tooling for linting and validating this repository (`make lock` pins it with hashes).
+yamllint==1.38.0
