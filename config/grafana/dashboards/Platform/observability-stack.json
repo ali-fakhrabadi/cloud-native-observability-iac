@@ -457,7 +457,7 @@
       ],
       "id": 8,
       "gridPos": {
-        "h": 9,
+        "h": 11,
         "w": 12,
         "x": 0,
         "y": 5
@@ -512,7 +512,7 @@
       ],
       "id": 9,
       "gridPos": {
-        "h": 9,
+        "h": 11,
         "w": 12,
         "x": 12,
         "y": 5
@@ -528,7 +528,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 16
       }
     },
     {
@@ -602,13 +602,13 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 15
+        "y": 17
       }
     },
     {
       "type": "timeseries",
       "title": "Alertmanager notifications",
-      "description": "",
+      "description": "Per second, for the integrations Alertmanager has used since it started (it exports a series for every integration it supports).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -619,16 +619,16 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (integration) (rate(alertmanager_notifications_total[$__rate_interval]))",
+          "expr": "sum by (integration) (rate(alertmanager_notifications_total[$__rate_interval])) and on (integration) (sum by (integration) (alertmanager_notifications_total) > 0)",
           "refId": "A",
-          "legendFormat": "{{integration}} sent"
+          "legendFormat": "{{integration}} attempts"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (integration) (rate(alertmanager_notifications_failed_total[$__rate_interval]))",
+          "expr": "sum by (integration) (rate(alertmanager_notifications_failed_total[$__rate_interval])) and on (integration) (sum by (integration) (alertmanager_notifications_total) > 0)",
           "refId": "B",
           "legendFormat": "{{integration}} failed"
         }
@@ -667,7 +667,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 15
+        "y": 17
       }
     },
     {
@@ -684,9 +684,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (rule_group) (prometheus_rule_group_last_duration_seconds)",
+          "expr": "max by (group) (label_replace(prometheus_rule_group_last_duration_seconds, \"group\", \"$1\", \"rule_group\", \".*;(.+)\"))",
           "refId": "A",
-          "legendFormat": "{{rule_group}}"
+          "legendFormat": "{{group}}"
         }
       ],
       "fieldConfig": {
@@ -723,7 +723,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 23
+        "y": 25
       }
     },
     {
@@ -779,7 +779,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 23
+        "y": 25
       }
     }
   ]

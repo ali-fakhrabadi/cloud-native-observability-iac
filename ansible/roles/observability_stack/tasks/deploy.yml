@@ -12,6 +12,7 @@
     - {path: scripts, mode: "0755"}
     - {path: tools, mode: "0755"}
     - {path: tools/alert-sink, mode: "0755"}
+    - {path: tools/docker-state-exporter, mode: "0755"}
     # Other host users must not read the secrets; containers get them as bind mounts.
     - {path: secrets, mode: "0700"}
 

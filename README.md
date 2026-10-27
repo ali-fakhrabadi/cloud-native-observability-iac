@@ -8,10 +8,10 @@ entirely as code: Prometheus, Alertmanager, Grafana, Loki, Grafana Alloy, Node E
 and cAdvisor in Docker Compose, Linux hardening and deployment with Ansible, and AWS
 infrastructure with Terraform.
 
-> **Status:** under active development. The container stack, alerting (with unit-tested
-> rules and runbooks), the log pipeline, the dashboards, the Ansible roles and the
-> Terraform modules are in place and verified in CI. Measured fault-injection drills
-> follow (see [Roadmap](#roadmap)).
+> **How it is verified:** every component is checked in CI (configuration
+> validation, alert rule unit tests, an end-to-end smoke test, Molecule for the Ansible
+> roles, `terraform test` with a mocked provider), and fault-injection drills on a lab
+> host measured how fast real failures reach a receiver ([results](#measured-not-estimated)).
 
 ## Architecture
 
@@ -25,6 +25,7 @@ flowchart LR
             loki["Loki"]
             alloy["Grafana Alloy"]
             cadv["cAdvisor"]
+            dse["Docker state<br/>exporter"]
             proxy["Docker API proxy<br/>(read-only)"]
             graf["Grafana"]
             sink["alert-sink<br/>(notification log)"]
@@ -34,14 +35,14 @@ flowchart LR
     end
     receiver["External receiver<br/>(AIOps engine, chat, pager)"]
     user["Operator"] -->|"HTTPS via proxy or SSH tunnel"| graf
-    prom -->|scrape| node & cadv & alloy & loki & am & graf
+    prom -->|scrape| node & cadv & dse & alloy & loki & am & graf
     prom -->|"scrape, bearer token"| apps
     prom -->|"metric alerts"| am
     loki -->|"log alerts (ruler)"| am
     am -->|"webhook (default)"| sink
     am -.->|"webhook (configurable)"| receiver
     alloy -->|"container logs, normalized level"| loki
-    alloy & cadv -->|GET only| proxy --> docker
+    alloy & cadv & dse -->|GET only| proxy --> docker
     graf --> prom & loki & am
 ```
 
@@ -54,12 +55,13 @@ flowchart LR
 | Grafana Alloy | 1.21.2 | Collects every container's logs (Promtail's successor; Promtail reached end of life in March 2026) |
 | Node Exporter | 1.12.1 | Host CPU, memory, disk, filesystem and network metrics |
 | cAdvisor | 0.60.6 | Per-container CPU, memory, network and disk I/O |
-| docker-socket-proxy | 0.5.0 | Read-only Docker API for Alloy and cAdvisor |
+| docker-socket-proxy | 0.5.0 | Read-only Docker API for Alloy, cAdvisor and the Docker state exporter |
+| docker-state-exporter | (this repository) | Restart counts, states and health checks as Docker reports them (cAdvisor misses containers stopped between restarts) |
 | alert-sink | (this repository) | Default webhook receiver: logs every notification as JSON, so it lands in Loki |
 
 ## Alerting
 
-25 alerts, each with a severity, a summary, a description (with the measured value where it means something) and a
+26 alerts, each with a severity, a summary, a description (with the measured value where it means something) and a
 [runbook](docs/runbooks.md). Metric alerts are Prometheus rules
 ([`config/prometheus/rules`](config/prometheus/rules)); log alerts are Loki ruler rules
 ([`config/loki/rules`](config/loki/rules)). Both go to the same Alertmanager.
@@ -67,7 +69,7 @@ flowchart LR
 | Area | Alerts |
 |---|---|
 | Host | CPU, memory, OOM kills, disk space (warning and critical), disk full within 24 h (linear prediction), inodes |
-| Containers | Crash loops, stopped services, memory near limit, CPU-bound throttling |
+| Containers | Crash loops (counted by Docker), failing health checks, stopped services, memory near limit, CPU-bound throttling |
 | Services | Scrape target down; Sentinel 5xx spike, p95 latency, webhook outbox backlog, failing webhook deliveries, rejected events |
 | Logs | Error bursts in any container, errors in Sentinel |
 | Meta-monitoring | Watchdog heartbeat, rule evaluation failures, notifications failing (Prometheus to Alertmanager, Alertmanager to receivers), dropped logs, unhealthy Alloy components |
@@ -112,15 +114,37 @@ errors or if the JSON differs from the generator.
 
 | Dashboard | Content |
 |---|---|
-| Linux & Docker overview | Host gauges (CPU, memory, disk, load), CPU by mode, memory, disk and network I/O, filesystem usage; per-container CPU, memory, limits, network and restarts; log volume by level and an errors and warnings stream |
+| Linux & Docker overview | Host gauges (CPU, memory, disk, load), CPU by mode, memory, disk and network I/O, filesystem usage; per-container CPU, memory, limits, network and restarts; log volume by level and an errors and warnings stream; filters for Compose project, interface and mount point |
 | Sentinel IAM & Audit Service | Request rate, 5xx ratio, latency percentiles and slowest views, audit ingestion by outcome, webhook outbox and deliveries, container CPU, logs filtered by level |
 | Observability stack health | Targets, firing alerts, series and samples, log throughput (sent, dropped, filtered), notifications, rule evaluation time, stack memory |
 
+Captured with `make screenshots` on the lab host, an hour of normal operation after the
+fault-injection drills; the host panels are narrowed to the main network interface and
+the root and boot filesystems with the dashboard's own variables:
+
+![Linux & Docker overview dashboard in Grafana's dark theme](docs/images/linux-docker-overview.png)
+
+More: [Sentinel IAM & Audit Service](docs/images/sentinel-service.png),
+[Observability stack health](docs/images/observability-stack.png).
+
+## Measured, not estimated
+
+Numbers from the lab host and from CI, each reproducible with a `make` target:
+
+| What | Result | Details |
+|---|---|---|
+| Fault to notification (median of 3 rounds) | Crash loop 58 s, service down 2 min 28 s, memory near its limit 6 min 12 s, error-log burst 6 min 15 s, CPU throttled 19 min 53 s; mostly the rules' deliberate `for` periods | [Drills](docs/drills.md#results) |
+| Problems the drills found | 2, fixed: a crash loop cAdvisor barely saw (notified after 627 s, now 57-69 s), and lost-looking logs after container restarts | [Drills](docs/drills.md#what-the-drills-found) |
+| Stack footprint | 727 MiB memory and 0.08 CPU cores on average over 12 hours (13,000 series, 781 samples/s) | [Sizing](docs/sizing.md) |
+| Disk growth | About 230 MB of Prometheus data per day | [Sizing](docs/sizing.md) |
+| Bare Debian 12 to a deployed, smoke-tested stack | 2 min 42 s (Ansible, in CI) | [Sizing](docs/sizing.md#provisioning-time-measured-in-ci) |
+| `make up` on a fresh CI runner, image pulls included | 48-66 s | [Sizing](docs/sizing.md#provisioning-time-measured-in-ci) |
+
 ## Security design
 
-* **No component holds the Docker socket.** Alloy and cAdvisor reach a proxy that allows
+* **No component holds the Docker socket.** Alloy, cAdvisor and the Docker state exporter reach a proxy that allows
   only read endpoints (containers, networks, events, info, version); writes are disabled.
-* **Network segmentation.** Loki, Alloy, cAdvisor and the proxy sit on internal networks
+* **Network segmentation.** Loki, Alloy, cAdvisor, the Docker state exporter and the proxy sit on internal networks
   without internet access. Only Prometheus (scraping), Alertmanager (notifications) and
   Grafana (UI) have egress. Prometheus and Alertmanager publish on `127.0.0.1` only.
 * **Authenticated metrics.** Node Exporter (host network) and Grafana's `/metrics` require
@@ -165,6 +189,9 @@ its address, and put Sentinel's `METRICS_AUTH_TOKEN` into `secrets/sentinel_metr
 | `make ansible-lint` | ansible-lint with the production profile |
 | `make test-ansible` | Molecule tests of both Ansible roles in disposable containers |
 | `make terraform` | `terraform fmt` and `validate`, tflint, Trivy and `terraform test` (mocked AWS provider) |
+| `make drills ROUNDS=3` | Fault-injection drills: inject real faults, measure time to alert, notification and resolution |
+| `make footprint` | Memory, CPU, series, ingestion and disk use of the running stack, from its own metrics |
+| `make screenshots` | Dark-mode PNG of every dashboard into `docs/images` |
 
 ## Ansible: hardening and deployment
 
@@ -256,7 +283,8 @@ terraform output -raw ansible_inventory   # hosts.yml for ansible/inventories/<n
    with Molecule **(done)**
 4. Terraform for an AWS host and its firewall, tested with `terraform test` and a mocked
    provider, tflint and Trivy **(done)**
-5. Measured fault-injection drills, documentation and release
+5. Measured fault-injection drills, resource footprint, screenshots and documentation
+   **(done)**
 
 ## License
 

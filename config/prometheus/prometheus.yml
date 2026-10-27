@@ -63,6 +63,11 @@ scrape_configs:
         regex: container_(tasks_state|memory_failures_total|blkio_device_usage_total)
         action: drop
 
+  # Restart counts, states and health checks as Docker reports them.
+  - job_name: docker
+    static_configs:
+      - targets: ["docker-state-exporter:9417"]
+
   # --- Monitored services -----------------------------------------------------------------
   # Sentinel (github.com/ali-fakhrabadi/sentinel-iam-audit-service) exposes Prometheus
   # metrics behind a bearer token. Targets come from targets/sentinel.yml, so the job is

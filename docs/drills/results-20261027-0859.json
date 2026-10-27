@@ -1,0 +1,218 @@
+{
+  "run": "202610270859",
+  "results": [
+    {
+      "round": 1,
+      "drill": "service-down",
+      "alert": "TargetDown",
+      "labels": {
+        "job": "grafana"
+      },
+      "expectation": "for 2m + up to 30 s scrape and evaluation + 10 s group_wait (critical)",
+      "injected_at": "2026-10-27T08:59:48.805917+00:00",
+      "time_to_alert_s": 134.2,
+      "time_to_notify_s": 144.2,
+      "time_to_resolved_s": 118.0,
+      "error": null
+    },
+    {
+      "round": 1,
+      "drill": "crash-loop",
+      "alert": "ContainerRestarting",
+      "labels": {
+        "name": "drill-crash-loop-202610270859-1"
+      },
+      "expectation": "3 restarts counted by Docker (no for) + up to 30 s scrape and evaluation + 30 s group_wait",
+      "injected_at": "2026-10-27T08:59:49.454508+00:00",
+      "time_to_alert_s": 38.9,
+      "time_to_notify_s": 68.9,
+      "time_to_resolved_s": 895.4,
+      "error": null
+    },
+    {
+      "round": 1,
+      "drill": "memory-pressure",
+      "alert": "ContainerMemoryNearLimit",
+      "labels": {
+        "name": "drill-memory-pressure-202610270859-1"
+      },
+      "expectation": "for 5m + up to 30 s scrape and evaluation + 30 s group_wait",
+      "injected_at": "2026-10-27T08:59:49.740353+00:00",
+      "time_to_alert_s": 338.6,
+      "time_to_notify_s": 368.6,
+      "time_to_resolved_s": 295.1,
+      "error": null
+    },
+    {
+      "round": 1,
+      "drill": "error-log-burst",
+      "alert": "ContainerErrorLogBurst",
+      "labels": {
+        "compose_project": "drill",
+        "compose_service": "drill-error-log-burst-202610270859-1"
+      },
+      "expectation": "21 errors logged + for 5m + up to 1 m ruler evaluation + 30 s group_wait",
+      "injected_at": "2026-10-27T08:59:50.053605+00:00",
+      "time_to_alert_s": 341.8,
+      "time_to_notify_s": 371.8,
+      "time_to_resolved_s": 598.1,
+      "error": null
+    },
+    {
+      "round": 1,
+      "drill": "cpu-saturation",
+      "alert": "ContainerCpuThrottled",
+      "labels": {
+        "name": "drill-cpu-saturation-202610270859-1"
+      },
+      "expectation": "~4 min until the 5-minute usage rate passes 80% + for 15m + 30 s group_wait",
+      "injected_at": "2026-10-27T08:59:50.447222+00:00",
+      "time_to_alert_s": 1162.9,
+      "time_to_notify_s": 1192.9,
+      "time_to_resolved_s": 298.6,
+      "error": null
+    },
+    {
+      "round": 2,
+      "drill": "service-down",
+      "alert": "TargetDown",
+      "labels": {
+        "job": "grafana"
+      },
+      "expectation": "for 2m + up to 30 s scrape and evaluation + 10 s group_wait (critical)",
+      "injected_at": "2026-10-27T09:24:45.260367+00:00",
+      "time_to_alert_s": 137.8,
+      "time_to_notify_s": 147.8,
+      "time_to_resolved_s": 116.1,
+      "error": null
+    },
+    {
+      "round": 2,
+      "drill": "crash-loop",
+      "alert": "ContainerRestarting",
+      "labels": {
+        "name": "drill-crash-loop-202610270859-2"
+      },
+      "expectation": "3 restarts counted by Docker (no for) + up to 30 s scrape and evaluation + 30 s group_wait",
+      "injected_at": "2026-10-27T09:24:46.042949+00:00",
+      "time_to_alert_s": 27.3,
+      "time_to_notify_s": 57.3,
+      "time_to_resolved_s": 899.2,
+      "error": null
+    },
+    {
+      "round": 2,
+      "drill": "memory-pressure",
+      "alert": "ContainerMemoryNearLimit",
+      "labels": {
+        "name": "drill-memory-pressure-202610270859-2"
+      },
+      "expectation": "for 5m + up to 30 s scrape and evaluation + 30 s group_wait",
+      "injected_at": "2026-10-27T09:24:46.449355+00:00",
+      "time_to_alert_s": 341.9,
+      "time_to_notify_s": 371.9,
+      "time_to_resolved_s": 298.2,
+      "error": null
+    },
+    {
+      "round": 2,
+      "drill": "error-log-burst",
+      "alert": "ContainerErrorLogBurst",
+      "labels": {
+        "compose_project": "drill",
+        "compose_service": "drill-error-log-burst-202610270859-2"
+      },
+      "expectation": "21 errors logged + for 5m + up to 1 m ruler evaluation + 30 s group_wait",
+      "injected_at": "2026-10-27T09:24:46.747344+00:00",
+      "time_to_alert_s": 345.1,
+      "time_to_notify_s": 375.1,
+      "time_to_resolved_s": 596.4,
+      "error": null
+    },
+    {
+      "round": 2,
+      "drill": "cpu-saturation",
+      "alert": "ContainerCpuThrottled",
+      "labels": {
+        "name": "drill-cpu-saturation-202610270859-2"
+      },
+      "expectation": "~4 min until the 5-minute usage rate passes 80% + for 15m + 30 s group_wait",
+      "injected_at": "2026-10-27T09:24:47.134433+00:00",
+      "time_to_alert_s": 1166.2,
+      "time_to_notify_s": 1196.2,
+      "time_to_resolved_s": 299.0,
+      "error": null
+    },
+    {
+      "round": 3,
+      "drill": "service-down",
+      "alert": "TargetDown",
+      "labels": {
+        "job": "grafana"
+      },
+      "expectation": "for 2m + up to 30 s scrape and evaluation + 10 s group_wait (critical)",
+      "injected_at": "2026-10-27T09:49:44.661329+00:00",
+      "time_to_alert_s": 138.4,
+      "time_to_notify_s": 148.4,
+      "time_to_resolved_s": 116.5,
+      "error": null
+    },
+    {
+      "round": 3,
+      "drill": "crash-loop",
+      "alert": "ContainerRestarting",
+      "labels": {
+        "name": "drill-crash-loop-202610270859-3"
+      },
+      "expectation": "3 restarts counted by Docker (no for) + up to 30 s scrape and evaluation + 30 s group_wait",
+      "injected_at": "2026-10-27T09:49:45.379184+00:00",
+      "time_to_alert_s": 27.9,
+      "time_to_notify_s": 58.0,
+      "time_to_resolved_s": 899.7,
+      "error": null
+    },
+    {
+      "round": 3,
+      "drill": "memory-pressure",
+      "alert": "ContainerMemoryNearLimit",
+      "labels": {
+        "name": "drill-memory-pressure-202610270859-3"
+      },
+      "expectation": "for 5m + up to 30 s scrape and evaluation + 30 s group_wait",
+      "injected_at": "2026-10-27T09:49:45.756961+00:00",
+      "time_to_alert_s": 342.6,
+      "time_to_notify_s": 372.6,
+      "time_to_resolved_s": 297.9,
+      "error": null
+    },
+    {
+      "round": 3,
+      "drill": "error-log-burst",
+      "alert": "ContainerErrorLogBurst",
+      "labels": {
+        "compose_project": "drill",
+        "compose_service": "drill-error-log-burst-202610270859-3"
+      },
+      "expectation": "21 errors logged + for 5m + up to 1 m ruler evaluation + 30 s group_wait",
+      "injected_at": "2026-10-27T09:49:46.153364+00:00",
+      "time_to_alert_s": 345.7,
+      "time_to_notify_s": 375.7,
+      "time_to_resolved_s": 596.1,
+      "error": null
+    },
+    {
+      "round": 3,
+      "drill": "cpu-saturation",
+      "alert": "ContainerCpuThrottled",
+      "labels": {
+        "name": "drill-cpu-saturation-202610270859-3"
+      },
+      "expectation": "~4 min until the 5-minute usage rate passes 80% + for 15m + 30 s group_wait",
+      "injected_at": "2026-10-27T09:49:46.538213+00:00",
+      "time_to_alert_s": 1151.8,
+      "time_to_notify_s": 1181.8,
+      "time_to_resolved_s": 298.4,
+      "error": null
+    }
+  ]
+}

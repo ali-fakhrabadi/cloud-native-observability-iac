@@ -31,7 +31,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-STACK_JOBS = ("prometheus", "alertmanager", "loki", "alloy", "grafana", "node", "cadvisor")
+STACK_JOBS = ("prometheus", "alertmanager", "loki", "alloy", "grafana", "node", "cadvisor", "docker")
 
 
 def load_env() -> dict[str, str]:
@@ -115,9 +115,10 @@ def main() -> int:
     def grafana_datasources() -> str | None:
         problems = []
         for uid in ("prometheus", "loki", "alertmanager"):
-            status, body = request(f"{grafana}/api/datasources/uid/{uid}/health", auth=admin)
-            if uid == "alertmanager":  # no health endpoint; the datasource must exist
-                status, body = request(f"{grafana}/api/datasources/uid/{uid}", auth=admin)
+            # The Alertmanager datasource has no health check (Grafana answers 500 and
+            # logs an error), so for it the datasource only has to exist.
+            path = f"/api/datasources/uid/{uid}" + ("" if uid == "alertmanager" else "/health")
+            status, body = request(f"{grafana}{path}", auth=admin)
             if status != 200:
                 problems.append(f"{uid}: HTTP {status} {body[:120]!r}")
         return "; ".join(problems) or None

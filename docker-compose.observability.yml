@@ -7,7 +7,8 @@
 #   backend     internal, no internet: every service talks to the others here
 #   egress      Prometheus (scrapes the host and remote targets), Alertmanager (sends
 #               notifications) and Grafana (published UI port)
-#   docker-api  internal: only Alloy and cAdvisor reach the read-only Docker API proxy
+#   docker-api  internal: only Alloy, cAdvisor and the Docker state exporter reach the
+#               read-only Docker API proxy
 #
 # Only Grafana is meant to be reachable from other machines; Prometheus and Alertmanager
 # are published on 127.0.0.1 for SSH tunnels. Node Exporter runs in the host network (it
@@ -231,8 +232,33 @@ services:
       resources:
         limits: {cpus: "0.5", memory: 256M}
 
+  # Docker's own restart counts, states and health checks, which cAdvisor cannot see for
+  # containers that are stopped between restarts (tools/docker-state-exporter).
+  docker-state-exporter:
+    <<: *hardened
+    image: python:3.12.15-slim-trixie
+    user: "65534:65534"
+    command: ["python", "-u", "/opt/docker-state-exporter/docker_state_exporter.py"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DOCKER_API_URL: http://docker-socket-proxy:2375
+    volumes:
+      - ./tools/docker-state-exporter:/opt/docker-state-exporter:ro
+    networks: [backend, docker-api]
+    depends_on:
+      docker-socket-proxy: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9417), 3).close()"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits: {cpus: "0.25", memory: 64M}
+
   # Read-only view of the Docker API (containers, networks, info, events, version), so
-  # neither Alloy nor cAdvisor holds the Docker socket, which is equivalent to root on the host.
+  # no service holds the Docker socket, which is equivalent to root on the host.
   docker-socket-proxy:
     <<: *hardened
     image: tecnativa/docker-socket-proxy:v0.5.0

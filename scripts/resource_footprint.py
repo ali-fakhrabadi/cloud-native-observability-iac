@@ -93,14 +93,18 @@ def main() -> int:
     prom = Prometheus(f"http://127.0.0.1:{env.get('PROMETHEUS_HTTP_PORT', '9090')}", end)
     w = args.window
 
-    memory = f"sum by ({SERVICE}) (container_memory_working_set_bytes{SELECTOR})"
-    cpu = f"sum by ({SERVICE}) (rate(container_cpu_usage_seconds_total{SELECTOR}[5m]))"
+    # A recreated container briefly has two series (old and new cgroup) under one name:
+    # take the larger per name, so it is not counted twice.
+    memory_per_container = f"max by (name, {SERVICE}) (container_memory_working_set_bytes{SELECTOR})"
+    cpu_per_container = f"max by (name, {SERVICE}) (rate(container_cpu_usage_seconds_total{SELECTOR}[5m]))"
+    memory = f"sum by ({SERVICE}) ({memory_per_container})"
+    cpu = f"sum by ({SERVICE}) ({cpu_per_container})"
     mem_avg = prom.by_service(f"avg_over_time({memory}[{w}:1m])")
     mem_max = prom.by_service(f"max_over_time({memory}[{w}:1m])")
     cpu_avg = prom.by_service(f"avg_over_time({cpu}[{w}:1m])")
     cpu_max = prom.by_service(f"max_over_time({cpu}[{w}:1m])")
-    total_mem = f"sum(container_memory_working_set_bytes{SELECTOR})"
-    total_cpu = f"sum(rate(container_cpu_usage_seconds_total{SELECTOR}[5m]))"
+    total_mem = f"sum({memory_per_container})"
+    total_cpu = f"sum({cpu_per_container})"
     totals = {
         "mem_avg": prom.scalar(f"avg_over_time({total_mem}[{w}:1m])"),
         "mem_max": prom.scalar(f"max_over_time({total_mem}[{w}:1m])"),

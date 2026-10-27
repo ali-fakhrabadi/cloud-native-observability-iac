@@ -9,7 +9,8 @@ observability_stack_tree: >-
   {{ query('community.general.filetree',
            observability_stack_source ~ '/config',
            observability_stack_source ~ '/scripts',
-           observability_stack_source ~ '/tools/alert-sink')
+           observability_stack_source ~ '/tools/alert-sink',
+           observability_stack_source ~ '/tools/docker-state-exporter')
      | rejectattr('path', 'match', '^prometheus/targets/[^/]+\.yml$')
      | rejectattr('path', 'search', '__pycache__')
      | list }}

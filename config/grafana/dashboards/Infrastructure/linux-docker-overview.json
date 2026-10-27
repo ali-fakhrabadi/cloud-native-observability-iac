@@ -48,6 +48,62 @@
           ]
         },
         "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "device",
+        "label": "Interface",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(node_network_receive_bytes_total{device!~\"lo|veth.*|br-.*|docker.*\"}, device)",
+        "query": {
+          "query": "label_values(node_network_receive_bytes_total{device!~\"lo|veth.*|br-.*|docker.*\"}, device)",
+          "refId": "device-variable"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".+",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "mountpoint",
+        "label": "Mount point",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(instance:node_filesystem_avail:ratio{fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|fuse.*\"}, mountpoint)",
+        "query": {
+          "query": "label_values(instance:node_filesystem_avail:ratio{fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|fuse.*\"}, mountpoint)",
+          "refId": "mountpoint-variable"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".+",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
       }
     ]
   },
@@ -656,7 +712,7 @@
     {
       "type": "timeseries",
       "title": "Network",
-      "description": "Physical interfaces only; received above the axis, sent below.",
+      "description": "Received above the axis, sent below. Loopback and Docker's own veth and bridge interfaces are left out; the Interface variable narrows it further.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -667,7 +723,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (device) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|br-.*|docker.*\"}[$__rate_interval]))",
+          "expr": "sum by (device) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|br-.*|docker.*\", device=~\"$device\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "{{device}} in"
         },
@@ -676,7 +732,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "-sum by (device) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|br-.*|docker.*\"}[$__rate_interval]))",
+          "expr": "-sum by (device) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|br-.*|docker.*\", device=~\"$device\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "{{device}} out"
         }
@@ -731,9 +787,11 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "1 - instance:node_filesystem_avail:ratio{fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|fuse.*\"}",
+          "expr": "1 - instance:node_filesystem_avail:ratio{fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|fuse.*\", mountpoint=~\"$mountpoint\"}",
           "refId": "A",
-          "legendFormat": "{{mountpoint}}"
+          "legendFormat": "{{mountpoint}}",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -923,7 +981,9 @@
           },
           "expr": "sort_desc(container_memory_working_set_bytes{name!=\"\", container_label_com_docker_compose_project=~\"$project\"} / (container_spec_memory_limit_bytes{name!=\"\", container_label_com_docker_compose_project=~\"$project\"} > 0))",
           "refId": "A",
-          "legendFormat": "{{name}}"
+          "legendFormat": "{{name}}",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -1031,7 +1091,7 @@
     {
       "type": "table",
       "title": "Restarts in the last hour",
-      "description": "Containers that started more than once in the last hour.",
+      "description": "Restarts counted by Docker (also of containers stopped between restarts).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1042,7 +1102,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sort_desc(sum by (name) (changes(container_start_time_seconds{name!=\"\", container_label_com_docker_compose_project=~\"$project\"}[1h])) > 0)",
+          "expr": "sort_desc(round(max by (name) (increase(docker_container_restarts_total{compose_project=~\"$project\"}[1h]))) > 0)",
           "refId": "A",
           "legendFormat": "",
           "instant": true,
@@ -1107,7 +1167,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (level) (count_over_time({compose_project=~\"$project\"}[$__auto]))",
+          "expr": "sum by (level) (count_over_time({compose_project=~\"$project\"} | label_format level=`{{ or .level \"unknown\" }}` [$__auto]))",
           "refId": "A",
           "legendFormat": "{{level}}",
           "queryType": "range"

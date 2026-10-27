@@ -63,12 +63,23 @@ with free space, usually because of millions of small files.
 ## Containers
 
 ### ContainerRestarting
-*A container started 3 or more times in 15 minutes (warning).* A crash loop: the service
-is mostly unavailable.
+*Docker restarted a container 3 or more times in 15 minutes (warning).* A crash loop: the
+service is mostly unavailable. The count is Docker's own (`RestartCount`, read by the
+Docker state exporter), so containers that are down most of the time between restarts
+are caught too; cAdvisor misses them.
 - Why: `docker logs --tail 100 <name>`; in Grafana, the *Errors and warnings* log panel
-  filtered to the container; exit code in `docker inspect -f '{{.State.ExitCode}}' <name>`
-  (137 = killed, often out of memory).
+  filtered to the container; the last exit code is `docker_container_exit_code` or
+  `docker inspect -f '{{.State.ExitCode}}' <name>` (137 = killed, often out of memory).
 - Fix: the cause in the logs (configuration, dependency down, memory limit).
+
+### ContainerUnhealthy
+*Docker has reported a container's health check as failing for 2 minutes (warning).*
+Docker only marks a container unhealthy after the check failed several times in a row
+(`retries`), so the service is very likely not serving.
+- Why: `docker inspect -f '{{json .State.Health}}' <name>` shows the last check outputs;
+  then the container's logs.
+- Fix: the cause the check reports (dependency, port, configuration). Docker does not
+  restart unhealthy containers by itself; `docker compose restart <service>` once fixed.
 
 ### ContainerStopped
 *A Compose service that ran for at least 5 minutes has not been seen for a minute

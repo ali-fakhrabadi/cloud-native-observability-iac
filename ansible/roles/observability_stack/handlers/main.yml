@@ -15,7 +15,7 @@
 
 - name: Restart the services without a reload signal
   ansible.builtin.command:
-    cmd: docker compose -f docker-compose.observability.yml restart loki alloy grafana alert-sink
+    cmd: docker compose -f docker-compose.observability.yml restart loki alloy grafana alert-sink docker-state-exporter
     chdir: "{{ observability_stack_dir }}"
   changed_when: true
   listen: Apply observability configuration

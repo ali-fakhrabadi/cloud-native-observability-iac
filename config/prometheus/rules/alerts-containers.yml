@@ -1,16 +1,32 @@
-# Container alerts from cAdvisor, aggregated by container name (a recreated container
-# keeps its name but gets a new ID).
+# Container alerts from cAdvisor (resources, aggregated by container name: a recreated
+# container keeps its name but gets a new ID) and from the Docker state exporter
+# (restarts and health checks, as Docker counts them).
 groups:
   - name: containers
     rules:
+      # Docker's restart count, not cAdvisor's start time: between restarts the container
+      # is stopped (the back-off grows to a minute), and cAdvisor, which only sees running
+      # containers every 15 s, missed a real crash loop in the fault-injection drill.
       - alert: ContainerRestarting
-        expr: changes(container_start_time_seconds{name!=""}[15m]) >= 3
+        expr: increase(docker_container_restarts_total[15m]) >= 3
         labels:
           severity: warning
         annotations:
           summary: "Container {{ $labels.name }} is restarting repeatedly"
-          description: "{{ $labels.name }} started {{ $value | humanize }} times in 15 minutes (crash loop)."
+          description: "Docker restarted {{ $labels.name }} about {{ $value | printf \"%.0f\" }} times in 15 minutes (crash loop)."
           runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containerrestarting"
+
+      # Docker marks a container unhealthy only after its health check failed `retries`
+      # times in a row, so this is already a confirmed failure.
+      - alert: ContainerUnhealthy
+        expr: docker_container_health_status{status="unhealthy"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} fails its health check"
+          description: "Docker has reported {{ $labels.name }} as unhealthy for 2 minutes."
+          runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containerunhealthy"
 
       # A Compose service container that ran for at least 5 minutes and has not been seen
       # for a minute. One-off containers (`docker run --rm`, CI tools) never qualify. It

@@ -12,10 +12,9 @@ ALERTMANAGER_IMAGE := prom/alertmanager:v0.34.1
 LOKI_IMAGE := grafana/loki:3.7.9
 ALLOY_IMAGE := grafana/alloy:v1.21.2
 SHELLCHECK_IMAGE := koalaman/shellcheck:v0.11.0
-# Headless Chromium for `make screenshots` (digest checked against mcr.microsoft.com).
-PLAYWRIGHT_IMAGE := mcr.microsoft.com/playwright/python:v1.64.1-noble@sha256:330d401ae23c905896a0c26c66c36fc971b621519e7b11b435a8328d7bf6e031
 
 TOOLS_IMAGE := observability-tools:local
+SCREENSHOTS_IMAGE := observability-screenshots:local
 TOOLS := docker run --rm --volume "$(CURDIR):/work" --workdir /work $(TOOLS_IMAGE)
 CHECK := docker run --rm --volume "$(CURDIR)/config:/config:ro"
 AMTOOL_ROUTE := $(CHECK) --entrypoint amtool $(ALERTMANAGER_IMAGE) config routes test \
@@ -73,7 +72,7 @@ logs: ## Follow logs (SERVICE=grafana to filter)
 
 reload: ## Apply configuration changes (SIGHUP where supported, restart elsewhere)
 	$(COMPOSE) kill --signal SIGHUP prometheus alertmanager
-	$(COMPOSE) restart loki alloy grafana alert-sink
+	$(COMPOSE) restart loki alloy grafana alert-sink docker-state-exporter
 
 smoke: ## End-to-end check of the running stack
 	python3 scripts/smoke_test.py $(SMOKE_ARGS)
@@ -85,13 +84,15 @@ drills: ## Fault-injection drills against the running stack (ROUNDS=3, DRILL=nam
 footprint: ## Measured memory, CPU, series, ingestion and disk use of the running stack (WINDOW=24h)
 	python3 scripts/resource_footprint.py --window $(or $(WINDOW),24h)
 
-screenshots: ## Dark-mode PNG of every dashboard into docs/images (RANGE=now-6h)
+screenshots: ## Dark-mode PNG of every dashboard into docs/images (RANGE=now-6h, VARS="device=eth0")
 	@mkdir -p docs/images
+	docker build --quiet --tag $(SCREENSHOTS_IMAGE) $(if $(PIP_INDEX_URL),--build-arg PIP_INDEX_URL=$(PIP_INDEX_URL)) \
+		tools/screenshots > /dev/null
 	docker run --rm --network host --shm-size 512m --user "$$(id -u):$$(id -g)" --env HOME=/tmp \
-		--volume "$(CURDIR)/tools/screenshots:/app:ro" --volume "$(CURDIR)/docs/images:/out" \
+		--volume "$(CURDIR)/docs/images:/out" \
 		--volume "$(CURDIR)/secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro" \
-		$(PLAYWRIGHT_IMAGE) python3 /app/capture.py --grafana http://127.0.0.1:$(or $(GRAFANA_HTTP_PORT),3000) \
-		--user $(or $(GRAFANA_ADMIN_USER),admin) --range $(or $(RANGE),now-6h)
+		$(SCREENSHOTS_IMAGE) --grafana http://127.0.0.1:$(or $(GRAFANA_HTTP_PORT),3000) \
+		--user $(or $(GRAFANA_ADMIN_USER),admin) --range $(or $(RANGE),now-6h) $(addprefix --var ,$(VARS))
 
 check-dashboards: ## Run every dashboard query against the running stack
 	python3 scripts/check_dashboards.py $(DASHBOARD_ARGS)
@@ -137,13 +138,15 @@ test-ansible: tools ## Molecule: apply the roles to disposable containers and ve
 tools: ## Build the tooling image (PIP_INDEX_URL=... for a PyPI mirror)
 	docker build --quiet --tag $(TOOLS_IMAGE) $(if $(PIP_INDEX_URL),--build-arg PIP_INDEX_URL=$(PIP_INDEX_URL)) tools > /dev/null
 
-lock: ## Re-resolve and hash-pin tools/requirements.txt
+lock: ## Re-resolve and hash-pin tools/requirements.txt and tools/screenshots/requirements.txt
 	docker run --rm --volume "$(CURDIR)/tools:/src" --workdir /src --user "$$(id -u):$$(id -g)" --env HOME=/tmp \
 		$(if $(PIP_INDEX_URL),--env PIP_INDEX_URL=$(PIP_INDEX_URL) --env UV_DEFAULT_INDEX=$(PIP_INDEX_URL)) \
 		$(LOCK_IMAGE) sh -c 'pip install --quiet --user uv==$(UV_VERSION) && \
-		/tmp/.local/bin/uv pip compile --quiet --generate-hashes --python-version 3.12 \
-		--python-platform x86_64-unknown-linux-gnu --custom-compile-command "make lock" \
-		requirements.in --output-file requirements.txt'
+		for req in requirements screenshots/requirements; do \
+			/tmp/.local/bin/uv pip compile --quiet --generate-hashes --python-version 3.12 \
+			--python-platform x86_64-unknown-linux-gnu --custom-compile-command "make lock" \
+			$$req.in --output-file $$req.txt || exit 1; \
+		done'
 
 terraform-init: ## Install providers for every Terraform module and environment (no backend)
 	@mkdir -p .cache/terraform

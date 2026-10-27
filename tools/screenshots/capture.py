@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Dark-mode screenshots of every provisioned Grafana dashboard.
 
-Runs inside the pinned Playwright image (`make screenshots`): logs in through Grafana's
-API with the admin password from the Docker secret file, opens each dashboard in kiosk
-mode, grows the viewport to the dashboard's full height so every panel renders, and saves
-a PNG. The password is read from the file and never printed.
+Runs in the image built from tools/screenshots (`make screenshots`): logs in through
+Grafana's API with the admin password from the Docker secret file, opens each dashboard in
+kiosk mode, grows the viewport to the dashboard's full height so every panel renders, and
+saves a PNG. The password is read from the file and never printed.
 """
 
 from __future__ import annotations
@@ -12,10 +12,39 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from urllib.parse import urlencode
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Page, sync_playwright
 
 DASHBOARDS = ("linux-docker-overview", "sentinel-service", "observability-stack")
+MAX_HEIGHT = 8000
+
+# Grafana scrolls the dashboard inside its own element, not the document, so the page
+# height is the bottom of the tallest scrolling element that fills most of the viewport.
+CONTENT_HEIGHT_JS = """() => {
+    let height = document.documentElement.scrollHeight;
+    for (const element of document.querySelectorAll("*")) {
+        const overflow = getComputedStyle(element).overflowY;
+        if ((overflow === "auto" || overflow === "scroll") && element.clientHeight > innerHeight / 2) {
+            height = Math.max(height, element.getBoundingClientRect().top + element.scrollHeight);
+        }
+    }
+    return Math.ceil(height);
+}"""
+
+
+def render_full_height(page: Page, width: int) -> int:
+    """Grow the viewport until it holds the whole dashboard; panels below it never load."""
+    height = 0
+    for _ in range(4):
+        content = min(page.evaluate(CONTENT_HEIGHT_JS), MAX_HEIGHT)
+        if content <= height:
+            break
+        height = content
+        page.set_viewport_size({"width": width, "height": height})
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(3000)
+    return height
 
 
 def main() -> int:
@@ -24,9 +53,21 @@ def main() -> int:
     parser.add_argument("--user", default="admin")
     parser.add_argument("--password-file", type=Path, default=Path("/run/secrets/grafana_admin_password"))
     parser.add_argument("--range", default="now-6h", help="dashboard time range start")
+    parser.add_argument(
+        "--var",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="dashboard variable, repeatable (device=eth0); dashboards without it ignore it",
+    )
     parser.add_argument("--width", type=int, default=1600)
     parser.add_argument("--out", type=Path, default=Path("/out"))
     args = parser.parse_args()
+
+    query = [("orgId", "1"), ("theme", "dark"), ("from", args.range), ("to", "now")]
+    for variable in args.var:
+        name, _, value = variable.partition("=")
+        query.append((f"var-{name}", value))
 
     password = args.password_file.read_text().strip()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -39,16 +80,12 @@ def main() -> int:
             return 1
         page = context.new_page()
         for uid in DASHBOARDS:
-            url = f"{args.grafana}/d/{uid}?orgId=1&theme=dark&kiosk&from={args.range}&to=now"
             page.set_viewport_size({"width": args.width, "height": 1000})
-            page.goto(url, wait_until="networkidle")
-            height = page.evaluate("document.documentElement.scrollHeight")
-            # Panels outside the viewport are not rendered: make the viewport the page.
-            page.set_viewport_size({"width": args.width, "height": min(max(height, 1000), 8000)})
-            page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(5000)
+            page.goto(f"{args.grafana}/d/{uid}?{urlencode(query)}&kiosk", wait_until="networkidle")
+            page.wait_for_timeout(2000)
+            height = render_full_height(page, args.width)
             path = args.out / f"{uid}.png"
-            page.screenshot(path=path, full_page=True)
+            page.screenshot(path=path)
             print(f"saved {path.name} ({args.width}x{height})")
         browser.close()
     return 0

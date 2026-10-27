@@ -4,22 +4,48 @@ rule_files:
 evaluation_interval: 1m
 
 tests:
-  - name: A crash loop fires, a single restart does not
+  - name: A crash loop fires; a single restart and a recreated container do not
     interval: 1m
     input_series:
-      - series: 'container_start_time_seconds{name="web"}'
-        values: "100 100 200 200 300 300 400 400"
-      - series: 'container_start_time_seconds{name="worker"}'
-        values: "100 100 100 200 200 200 200 200"
+      # Docker restarted web 5 times in 5 minutes.
+      - series: 'docker_container_restarts_total{name="web", compose_project="app", compose_service="web"}'
+        values: "0 1 2 3 4 5 5 5"
+      - series: 'docker_container_restarts_total{name="worker", compose_project="app", compose_service="worker"}'
+        values: "0 0 1 1 1 1 1 1"
+      # Recreated under the same name: the count starts again at 0 (a reset, not restarts).
+      - series: 'docker_container_restarts_total{name="api", compose_project="app", compose_service="api"}'
+        values: "40 40 40 0 0 0 0 0"
     alert_rule_test:
       - eval_time: 7m
         alertname: ContainerRestarting
         exp_alerts:
-          - exp_labels: {severity: warning, name: web}
+          - exp_labels: {severity: warning, name: web, compose_project: app, compose_service: web}
             exp_annotations:
               summary: "Container web is restarting repeatedly"
-              description: "web started 3 times in 15 minutes (crash loop)."
+              description: "Docker restarted web about 5 times in 15 minutes (crash loop)."
               runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containerrestarting"
+
+  - name: An unhealthy container fires after 2 minutes; healthy and starting ones do not
+    interval: 1m
+    input_series:
+      - series: 'docker_container_health_status{name="db", compose_project="app", compose_service="db", status="unhealthy"}'
+        values: "1x5"
+      - series: 'docker_container_health_status{name="cache", compose_project="app", compose_service="cache", status="starting"}'
+        values: "1x5"
+      - series: 'docker_container_health_status{name="web", compose_project="app", compose_service="web", status="healthy"}'
+        values: "1x5"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ContainerUnhealthy
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: ContainerUnhealthy
+        exp_alerts:
+          - exp_labels: {severity: warning, name: db, compose_project: app, compose_service: db, status: unhealthy}
+            exp_annotations:
+              summary: "Container db fails its health check"
+              description: "Docker has reported db as unhealthy for 2 minutes."
+              runbook_url: "https://github.com/ali-fakhrabadi/cloud-native-observability-iac/blob/main/docs/runbooks.md#containerunhealthy"
 
   - name: A stopped service fires; recreated, one-off and short-lived containers do not
     interval: 1m

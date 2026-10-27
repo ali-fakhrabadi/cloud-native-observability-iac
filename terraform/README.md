@@ -55,7 +55,7 @@ the data volume is mounted.
 | `ssh_public_keys` | required | OpenSSH public keys of the operators |
 | `ssh_ingress_cidrs` | required | Networks allowed to reach SSH; `0.0.0.0/0` is refused, `[]` leaves Session Manager only |
 | `grafana_ingress_cidrs` | `[]` | Networks allowed to reach Grafana on port 3000 directly |
-| `instance_type` | `t3.medium` | 2 vCPU, 4 GiB. The stack used about 710 MiB on the lab host monitoring one service; its memory limits add up to 3.5 GiB |
+| `instance_type` | `t3.medium` | 2 vCPU, 4 GiB. On the lab host the stack averaged 727 MiB and 0.08 cores over 12 hours ([sizing](../docs/sizing.md)); its memory limits add up to 3.5 GiB |
 | `data_volume_size` | `30` | GiB for metrics, logs and dashboards (Prometheus keeps 15 days or 5 GB) |
 | `region`, `project`, `environment`, `vpc_cidr` | `eu-central-1`, `observability`, `lab`, `10.20.0.0/16` | Placement and naming |
 

@@ -32,6 +32,8 @@ SUBSTITUTIONS = {
     "$__interval": "1m",
     "$__auto": "1m",
     "$project": ".+",
+    "$device": ".+",
+    "$mountpoint": ".+",
     "$level": ".+",
 }
 

@@ -159,7 +159,9 @@ def bargauge(title: str, expr: str, legend: str, unit: str = "percentunit", *, d
         "title": title,
         "description": desc,
         "datasource": PROM,
-        "targets": [prom(expr, legend)],
+        # Instant, so sort_desc() orders the bars (it has no effect on range queries), but
+        # still one series per bar rather than prom(instant=True)'s table format.
+        "targets": [{**prom(expr, legend), "instant": True, "range": False}],
         "fieldConfig": {
             "defaults": {"unit": unit, "min": 0, "max": 1, "decimals": 1, "thresholds": GREEN_AMBER_RED},
             "overrides": [],
@@ -282,6 +284,7 @@ def dashboard(uid: str, title: str, tags: list[str], layout: Layout, variables: 
 # ---------------------------------------------------------------------------------------
 def linux_docker_overview() -> dict[str, Any]:
     real_fs = 'fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs|fuse.*"'
+    host_nics = 'device!~"lo|veth.*|br-.*|docker.*"'
     project = 'container_label_com_docker_compose_project=~"$project"'
     lay = Layout()
 
@@ -353,17 +356,21 @@ def linux_docker_overview() -> dict[str, Any]:
         timeseries(
             "Network",
             [
-                prom('sum by (device) (rate(node_network_receive_bytes_total{device!~"lo|veth.*|br-.*|docker.*"}[$__rate_interval]))', "{{device}} in", ref="A"),
-                prom('-sum by (device) (rate(node_network_transmit_bytes_total{device!~"lo|veth.*|br-.*|docker.*"}[$__rate_interval]))', "{{device}} out", ref="B"),
+                prom(f'sum by (device) (rate(node_network_receive_bytes_total{{{host_nics}, device=~"$device"}}[$__rate_interval]))', "{{device}} in", ref="A"),
+                prom(f'-sum by (device) (rate(node_network_transmit_bytes_total{{{host_nics}, device=~"$device"}}[$__rate_interval]))', "{{device}} out", ref="B"),
             ],
             "Bps",
             minimum=None,
-            desc="Physical interfaces only; received above the axis, sent below.",
+            desc="Received above the axis, sent below. Loopback and Docker's own veth and bridge interfaces are left out; the Interface variable narrows it further.",
         ),
         8,
         8,
     )
-    lay.add(bargauge("Filesystem usage", f"1 - instance:node_filesystem_avail:ratio{{{real_fs}}}", "{{mountpoint}}"), 8, 8)
+    lay.add(
+        bargauge("Filesystem usage", f'1 - instance:node_filesystem_avail:ratio{{{real_fs}, mountpoint=~"$mountpoint"}}', "{{mountpoint}}"),
+        8,
+        8,
+    )
 
     lay.row("Containers")
     lay.add(
@@ -408,10 +415,10 @@ def linux_docker_overview() -> dict[str, Any]:
     lay.add(
         table(
             "Restarts in the last hour",
-            f'sort_desc(sum by (name) (changes(container_start_time_seconds{{name!="", {project}}}[1h])) > 0)',
+            'sort_desc(round(max by (name) (increase(docker_container_restarts_total{compose_project=~"$project"}[1h]))) > 0)',
             [],
             {"name": "Container", "Value": "Restarts"},
-            desc="Containers that started more than once in the last hour.",
+            desc="Restarts counted by Docker (also of containers stopped between restarts).",
         ),
         8,
         9,
@@ -421,7 +428,8 @@ def linux_docker_overview() -> dict[str, Any]:
     lay.add(
         timeseries(
             "Log lines by level",
-            [loki('sum by (level) (count_over_time({compose_project=~"$project"}[$__auto]))', "{{level}}")],
+            # Lines without a detected level would otherwise be an unnamed series.
+            [loki('sum by (level) (count_over_time({compose_project=~"$project"} | label_format level=`{{ or .level "unknown" }}` [$__auto]))', "{{level}}")],
             "short",
             stack=True,
             bars=True,
@@ -445,7 +453,11 @@ def linux_docker_overview() -> dict[str, Any]:
         "Linux & Docker overview",
         ["linux", "docker", "node-exporter", "cadvisor", "loki"],
         lay,
-        [query_variable("project", "Compose project", "label_values(container_last_seen, container_label_com_docker_compose_project)")],
+        [
+            query_variable("project", "Compose project", "label_values(container_last_seen, container_label_com_docker_compose_project)"),
+            query_variable("device", "Interface", f"label_values(node_network_receive_bytes_total{{{host_nics}}}, device)"),
+            query_variable("mountpoint", "Mount point", f"label_values(instance:node_filesystem_avail:ratio{{{real_fs}}}, mountpoint)"),
+        ],
         "Host resources from Node Exporter, containers from cAdvisor, logs from Loki.",
     )
 
@@ -616,6 +628,8 @@ def sentinel() -> dict[str, Any]:
 # The observability stack itself
 # ---------------------------------------------------------------------------------------
 def observability_stack() -> dict[str, Any]:
+    # Integrations Alertmanager has tried at least once; it exports every supported one.
+    used = "(sum by (integration) (alertmanager_notifications_total) > 0)"
     lay = Layout()
 
     lay.row("Health")
@@ -652,7 +666,7 @@ def observability_stack() -> dict[str, Any]:
         4,
         4,
     )
-    lay.add(table("Scrape targets", "up", ["__name__"], {"job": "Job", "instance": "Instance", "Value": "Up"}), 12, 9)
+    lay.add(table("Scrape targets", "up", ["__name__"], {"job": "Job", "instance": "Instance", "Value": "Up"}), 12, 11)
     lay.add(
         table(
             "Firing alerts",
@@ -661,7 +675,7 @@ def observability_stack() -> dict[str, Any]:
             {"alertname": "Alert", "severity": "Severity"},
         ),
         12,
-        9,
+        11,
     )
 
     lay.row("Pipelines")
@@ -683,10 +697,11 @@ def observability_stack() -> dict[str, Any]:
         timeseries(
             "Alertmanager notifications",
             [
-                prom("sum by (integration) (rate(alertmanager_notifications_total[$__rate_interval]))", "{{integration}} sent", ref="A"),
-                prom("sum by (integration) (rate(alertmanager_notifications_failed_total[$__rate_interval]))", "{{integration}} failed", ref="B"),
+                prom(f"sum by (integration) (rate(alertmanager_notifications_total[$__rate_interval])) and on (integration) {used}", "{{integration}} attempts", ref="A"),
+                prom(f"sum by (integration) (rate(alertmanager_notifications_failed_total[$__rate_interval])) and on (integration) {used}", "{{integration}} failed", ref="B"),
             ],
             "short",
+            desc="Per second, for the integrations Alertmanager has used since it started (it exports a series for every integration it supports).",
         ),
         12,
         8,
@@ -694,7 +709,8 @@ def observability_stack() -> dict[str, Any]:
     lay.add(
         timeseries(
             "Rule group evaluation time",
-            [prom("max by (rule_group) (prometheus_rule_group_last_duration_seconds)", "{{rule_group}}")],
+            # rule_group is "<file>;<group>": the group name alone keeps the legend readable.
+            [prom('max by (group) (label_replace(prometheus_rule_group_last_duration_seconds, "group", "$1", "rule_group", ".*;(.+)"))', "{{group}}")],
             "s",
         ),
         12,

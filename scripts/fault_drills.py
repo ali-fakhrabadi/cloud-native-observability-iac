@@ -8,7 +8,7 @@ injected and removed each fault; alert-sink records when every notification arri
 when its alert started firing (the rule's `for` period over).
 
   service-down     stop the stack's Grafana          -> TargetDown (critical, for 2m)
-  crash-loop       container exiting every 3 s       -> ContainerRestarting (no for)
+  crash-loop       container exiting after 3 s      -> ContainerRestarting (no for)
   memory-pressure  container at ~95% of its limit    -> ContainerMemoryNearLimit (for 5m)
   error-log-burst  service logging an error a second -> ContainerErrorLogBurst (Loki, for 5m)
   cpu-saturation   container spinning at its limit   -> ContainerCpuThrottled (for 15m)
@@ -16,8 +16,9 @@ when its alert started firing (the rule's `for` period over).
 The drills of a round run concurrently, in disposable containers labelled drill=true
 (small CPU and memory limits). Apart from those, only the stack's own Grafana is touched.
 A round ends when every drill has its resolved notification, so rounds do not overlap in
-Alertmanager's notification groups. A crash loop stays alerted for up to 15 minutes after
-it stops (the rule counts restarts over 15 minutes), so a round takes about 25 minutes.
+Alertmanager's notification groups. The CPU rule waits 15 minutes before firing, and a
+crash loop stays alerted for up to 15 minutes after it stops (the rule counts restarts
+over 15 minutes), so a round takes about 25 minutes.
 
 Usage: scripts/fault_drills.py [--rounds 3] [--drill NAME ...] [--output FILE.json]
 Requires the running stack (make up) and access to Docker. Standard library only.
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import statistics
 import subprocess
 import sys
@@ -153,7 +155,7 @@ class Drills:
             command="import time; time.sleep(3); raise SystemExit(1)")
         drills.append(Drill(
             "crash-loop", "ContainerRestarting", {"name": name},
-            "3 restarts seen across 15 s scrapes (no for) + 30 s group_wait",
+            "3 restarts counted by Docker (no for) + up to 30 s scrape and evaluation + 30 s group_wait",
             inject, recover))
 
         # ~112 MiB of touched memory plus the interpreter, under a 128 MiB limit.
@@ -162,7 +164,7 @@ class Drills:
             command="import time; data = b'x' * (112 * 1024 * 1024); time.sleep(86400)")
         drills.append(Drill(
             "memory-pressure", "ContainerMemoryNearLimit", {"name": name},
-            "for 5m + up to 30 s scrape and evaluation + 30 s group_wait",
+            "for 5m + up to 45 s cAdvisor collection, scrape and evaluation + 30 s group_wait",
             inject, recover))
 
         name, inject, recover = self.container(
@@ -180,7 +182,9 @@ class Drills:
             "cpu-saturation", cpus="0.1", memory="32m", command="while True: pass")
         drills.append(Drill(
             "cpu-saturation", "ContainerCpuThrottled", {"name": name},
-            "for 15m + up to 30 s scrape and evaluation + 30 s group_wait",
+            # rate() over 5 minutes divides by the whole window, so for a new container the
+            # usage ratio climbs for about 4 minutes before it passes 80%.
+            "~4 min until the 5-minute usage rate passes 80% + for 15m + 30 s group_wait",
             inject, recover, timeout_seconds=2400))
 
         return [drill for drill in drills if not selected or drill.name in selected]
@@ -275,22 +279,25 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
+    # Stop cleanly (drill containers removed, Grafana back) on Ctrl-C or `kill`, also when
+    # started in the background, where shells leave SIGINT ignored.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+
     config = json.loads(run(*COMPOSE, "config", "--format", "json"))
     # The alert-sink image (Python, already on the host) runs the drill containers.
     image = config["services"]["alert-sink"]["image"]
     run_id = now().strftime("%Y%m%d%H%M")
     results: list[dict] = []
-    try:
-        for number in range(1, args.rounds + 1):
-            print(f"round {number}/{args.rounds}", flush=True)
-            drills = Drills(image, f"{run_id}-{number}").build(args.drill)
-            try:
-                run_round(drills)
-            finally:
-                cleanup()
-            results += [{"round": number, **drill.result()} for drill in drills]
-    finally:
-        if args.output:
+    for number in range(1, args.rounds + 1):
+        print(f"round {number}/{args.rounds}", flush=True)
+        drills = Drills(image, f"{run_id}-{number}").build(args.drill)
+        try:
+            run_round(drills)
+        finally:
+            cleanup()
+        results += [{"round": number, **drill.result()} for drill in drills]
+        if args.output:  # after every round, so an interrupted run keeps what it measured
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps({"run": run_id, "results": results}, indent=2) + "\n")
 

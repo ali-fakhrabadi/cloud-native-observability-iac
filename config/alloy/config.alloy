@@ -51,6 +51,14 @@ loki.source.docker "containers" {
 loki.process "containers" {
   forward_to = [loki.write.local.receiver]
 
+  // When a container starts again, its whole Docker log is read again. Loki already has
+  // those lines and rejects the ones over an hour old ("too far behind"), which looked
+  // like lost logs (LogsDropped) after every restart in the fault-injection drills.
+  stage.drop {
+    older_than          = "1h"
+    drop_counter_reason = "older_than_1h"
+  }
+
   // Successful Docker API calls from the proxy are one line per request and say
   // nothing; refused or failed calls are kept.
   stage.match {
