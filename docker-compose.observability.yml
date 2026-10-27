@@ -80,7 +80,7 @@ services:
   # Replace secrets/alertmanager_webhook_url to deliver to a real system instead.
   alert-sink:
     <<: *hardened
-    image: python:3.12.15-slim-trixie
+    image: python:3.15.0-slim-trixie
     user: "65534:65534"
     command: ["python", "-u", "/opt/alert-sink/alert_sink.py"]
     environment:
