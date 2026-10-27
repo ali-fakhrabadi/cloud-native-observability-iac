@@ -118,14 +118,20 @@ errors or if the JSON differs from the generator.
 | Sentinel IAM & Audit Service | Request rate, 5xx ratio, latency percentiles and slowest views, audit ingestion by outcome, webhook outbox and deliveries, container CPU, logs filtered by level |
 | Observability stack health | Targets, firing alerts, series and samples, log throughput (sent, dropped, filtered), notifications, rule evaluation time, stack memory |
 
-Captured with `make screenshots` on the lab host, an hour of normal operation after the
-fault-injection drills; the host panels are narrowed to the main network interface and
-the root and boot filesystems with the dashboard's own variables:
+Captured with `make screenshots` on the lab host, half an hour of normal operation after
+the fault-injection drills, while a demo producer sent about 4 audit events per second to
+Sentinel (single and bulk ingestion with some duplicates and invalid items, plus queries).
+The host panels are narrowed to the main network interface and the root and boot
+filesystems with the dashboard's own variables:
 
 ![Linux & Docker overview dashboard in Grafana's dark theme](docs/images/linux-docker-overview.png)
 
 More: [Sentinel IAM & Audit Service](docs/images/sentinel-service.png),
-[Observability stack health](docs/images/observability-stack.png).
+[Observability stack health](docs/images/observability-stack.png). The Sentinel dashboard's
+single final webhook failure is real and expected: Sentinel's own end-to-end check on
+2026-10-26 subscribed a test endpoint and disabled it before the worker picked up the
+delivery, so Sentinel recorded it as failed (`endpoint_disabled`) instead of sending it.
+The panel shows a running total, so that one failure stays visible.
 
 ## Measured, not estimated
 

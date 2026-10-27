@@ -525,8 +525,10 @@ def sentinel() -> dict[str, Any]:
         timeseries(
             "Responses by status class",
             [
+                # "> 0": a class without traffic would otherwise be stacked as a line on
+                # top of the others and read as if it carried their whole rate.
                 prom(
-                    f'sum by (class) (label_replace(rate(django_http_responses_total_by_status_total{{{job}}}[$__rate_interval]), "class", "${{1}}xx", "status", "([0-9]).."))',
+                    f'sum by (class) (label_replace(rate(django_http_responses_total_by_status_total{{{job}}}[$__rate_interval]), "class", "${{1}}xx", "status", "([0-9])..")) > 0',
                     "{{class}}",
                 )
             ],
@@ -553,7 +555,8 @@ def sentinel() -> dict[str, Any]:
     lay.add(
         timeseries(
             "Slowest views (p95)",
-            [prom(f"topk(5, histogram_quantile(0.95, sum by (view, le) (rate({bucket}[$__rate_interval]))))", "{{view}}")],
+            # "> 0" drops views without requests in the window (their quantile is NaN).
+            [prom(f"topk(5, histogram_quantile(0.95, sum by (view, le) (rate({bucket}[$__rate_interval]))) > 0)", "{{view}}")],
             "s",
         ),
         12,
@@ -587,7 +590,10 @@ def sentinel() -> dict[str, Any]:
             "Final webhook failures",
             [prom(f'sentinel_webhook_deliveries{{{job}, status=~"failed|exhausted"}}', "{{status}}")],
             "short",
-            desc="Total deliveries that failed permanently or exhausted their retries.",
+            desc=(
+                "Deliveries in a final failed state, counted from Sentinel's database since it was created: "
+                "a running total, not a rate. A step up is a new failure; the delivery's last_error says why."
+            ),
         ),
         8,
         8,

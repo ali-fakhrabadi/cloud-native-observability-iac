@@ -491,7 +491,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (class) (label_replace(rate(django_http_responses_total_by_status_total{job=\"sentinel\"}[$__rate_interval]), \"class\", \"${1}xx\", \"status\", \"([0-9])..\"))",
+          "expr": "sum by (class) (label_replace(rate(django_http_responses_total_by_status_total{job=\"sentinel\"}[$__rate_interval]), \"class\", \"${1}xx\", \"status\", \"([0-9])..\")) > 0",
           "refId": "A",
           "legendFormat": "{{class}}"
         }
@@ -621,7 +621,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "topk(5, histogram_quantile(0.95, sum by (view, le) (rate(django_http_requests_latency_seconds_by_view_method_bucket{job=\"sentinel\"}[$__rate_interval]))))",
+          "expr": "topk(5, histogram_quantile(0.95, sum by (view, le) (rate(django_http_requests_latency_seconds_by_view_method_bucket{job=\"sentinel\"}[$__rate_interval]))) > 0)",
           "refId": "A",
           "legendFormat": "{{view}}"
         }
@@ -791,7 +791,7 @@
     {
       "type": "timeseries",
       "title": "Final webhook failures",
-      "description": "Total deliveries that failed permanently or exhausted their retries.",
+      "description": "Deliveries in a final failed state, counted from Sentinel's database since it was created: a running total, not a rate. A step up is a new failure; the delivery's last_error says why.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
