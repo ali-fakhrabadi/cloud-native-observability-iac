@@ -12,6 +12,8 @@ ALERTMANAGER_IMAGE := prom/alertmanager:v0.34.1
 LOKI_IMAGE := grafana/loki:3.7.9
 ALLOY_IMAGE := grafana/alloy:v1.21.2
 SHELLCHECK_IMAGE := koalaman/shellcheck:v0.11.0
+# Headless Chromium for `make screenshots` (digest checked against mcr.microsoft.com).
+PLAYWRIGHT_IMAGE := mcr.microsoft.com/playwright/python:v1.64.1-noble@sha256:330d401ae23c905896a0c26c66c36fc971b621519e7b11b435a8328d7bf6e031
 
 TOOLS_IMAGE := observability-tools:local
 TOOLS := docker run --rm --volume "$(CURDIR):/work" --workdir /work $(TOOLS_IMAGE)
@@ -41,7 +43,7 @@ TERRAFORM := $(TF_DOCKER) --env TF_IN_AUTOMATION=1 --env CHECKPOINT_DISABLE=1 --
 	$(TERRAFORM_IMAGE)
 TFLINT := $(TF_DOCKER) --workdir /work/terraform --env TFLINT_PLUGIN_DIR=/work/.cache/tflint --env GITHUB_TOKEN $(TFLINT_IMAGE)
 
-.PHONY: help env secrets up down destroy ps logs reload smoke check-dashboards dashboards validate test-rules lint ansible-lint test-ansible tools lock ci \
+.PHONY: help env secrets up down destroy ps logs reload smoke drills footprint screenshots check-dashboards dashboards validate test-rules lint ansible-lint test-ansible tools lock ci \
 	terraform terraform-init terraform-fmt terraform-lint terraform-scan test-terraform terraform-lock
 
 help: ## Show this help
@@ -75,6 +77,21 @@ reload: ## Apply configuration changes (SIGHUP where supported, restart elsewher
 
 smoke: ## End-to-end check of the running stack
 	python3 scripts/smoke_test.py $(SMOKE_ARGS)
+
+drills: ## Fault-injection drills against the running stack (ROUNDS=3, DRILL=name for one)
+	python3 scripts/fault_drills.py --rounds $(or $(ROUNDS),1) $(addprefix --drill ,$(DRILL)) \
+		--output docs/drills/results-$$(date -u +%Y%m%d-%H%M).json
+
+footprint: ## Measured memory, CPU, series, ingestion and disk use of the running stack (WINDOW=24h)
+	python3 scripts/resource_footprint.py --window $(or $(WINDOW),24h)
+
+screenshots: ## Dark-mode PNG of every dashboard into docs/images (RANGE=now-6h)
+	@mkdir -p docs/images
+	docker run --rm --network host --shm-size 512m --user "$$(id -u):$$(id -g)" --env HOME=/tmp \
+		--volume "$(CURDIR)/tools/screenshots:/app:ro" --volume "$(CURDIR)/docs/images:/out" \
+		--volume "$(CURDIR)/secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro" \
+		$(PLAYWRIGHT_IMAGE) python3 /app/capture.py --grafana http://127.0.0.1:$(or $(GRAFANA_HTTP_PORT),3000) \
+		--user $(or $(GRAFANA_ADMIN_USER),admin) --range $(or $(RANGE),now-6h)
 
 check-dashboards: ## Run every dashboard query against the running stack
 	python3 scripts/check_dashboards.py $(DASHBOARD_ARGS)

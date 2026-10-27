@@ -66,6 +66,7 @@ class Handler(BaseHTTPRequestHandler):
                 # duration, evaluation interval, Alertmanager grouping and delivery.
                 "delay_seconds": round((received - started).total_seconds(), 3) if started else None,
                 "fingerprint": alert.get("fingerprint"),
+                "labels": labels,
             }
             sys.stdout.write(json.dumps(record, separators=(",", ":")) + "\n")
         sys.stdout.flush()

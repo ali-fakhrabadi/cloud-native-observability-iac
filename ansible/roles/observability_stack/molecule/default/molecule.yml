@@ -25,6 +25,10 @@ platforms:
     command: /lib/systemd/systemd
 provisioner:
   name: ansible
+  config_options:
+    defaults:
+      # Prints how long each step (converge, idempotence, verify) took.
+      callbacks_enabled: ansible.posix.timer
   env:
     ANSIBLE_ROLES_PATH: ../../../
 verifier:

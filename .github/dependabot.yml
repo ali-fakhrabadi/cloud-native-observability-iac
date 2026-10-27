@@ -21,6 +21,11 @@ updates:
         patterns: ["grafana/*"]
       prometheus-stack:
         patterns: ["prom/*"]
+    ignore:
+      # alert-sink runs on the same Python image as the tools (locked for 3.12), so
+      # minor versions move together, deliberately. Patch releases still come through.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     commit-message:
       prefix: build
 
@@ -36,5 +41,10 @@ updates:
     directory: /tools
     schedule:
       interval: weekly
+    ignore:
+      # tools/requirements.txt is resolved for Python 3.12: newer minor versions are a
+      # deliberate change together with `make lock`. Patch releases still come through.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     commit-message:
       prefix: build
