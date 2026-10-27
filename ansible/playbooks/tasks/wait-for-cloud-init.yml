@@ -1,0 +1,15 @@
+---
+# Cloud instances (such as the Terraform host): let first-boot provisioning finish, so
+# the data volume is mounted before anything installs packages or starts Docker.
+- name: Check whether cloud-init manages this host
+  ansible.builtin.stat:
+    path: /usr/bin/cloud-init
+  register: cloud_init_binary
+
+- name: Wait for cloud-init to finish first boot
+  ansible.builtin.command: cloud-init status --wait
+  when: cloud_init_binary.stat.exists
+  register: cloud_init_status
+  changed_when: false
+  # 2 means finished with recoverable errors (cloud-init 23.4 and later).
+  failed_when: cloud_init_status.rc not in [0, 2]

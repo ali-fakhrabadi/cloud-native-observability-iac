@@ -9,8 +9,9 @@ and cAdvisor in Docker Compose, Linux hardening and deployment with Ansible, and
 infrastructure with Terraform.
 
 > **Status:** under active development. The container stack, alerting (with unit-tested
-> rules and runbooks), the log pipeline and the dashboards are in place and verified in
-> CI. The Ansible roles and the Terraform modules follow (see [Roadmap](#roadmap)).
+> rules and runbooks), the log pipeline, the dashboards, the Ansible roles and the
+> Terraform modules are in place and verified in CI. Measured fault-injection drills
+> follow (see [Roadmap](#roadmap)).
 
 ## Architecture
 
@@ -163,6 +164,7 @@ its address, and put Sentinel's `METRICS_AUTH_TOKEN` into `secrets/sentinel_metr
 | `make destroy` | Remove the stack and all stored data |
 | `make ansible-lint` | ansible-lint with the production profile |
 | `make test-ansible` | Molecule tests of both Ansible roles in disposable containers |
+| `make terraform` | `terraform fmt` and `validate`, tflint, Trivy and `terraform test` (mocked AWS provider) |
 
 ## Ansible: hardening and deployment
 
@@ -212,6 +214,39 @@ namespaced and would change the test host).
 > proxy on the host, or bind it to a private interface. Node Exporter runs in the host
 > network, so UFW does apply to port 9100.
 
+## Terraform: the AWS host
+
+[`terraform/`](terraform) provisions one Debian 12 monitoring host on AWS and prints the
+Ansible inventory for it (details in [`terraform/README.md`](terraform/README.md)):
+
+| Module | Resources |
+|---|---|
+| `network` | VPC, a public subnet without automatic public IPs, internet gateway and route, the default security group stripped of its rules, flow logs of rejected traffic to CloudWatch Logs through a role scoped to its log group |
+| `monitoring_host` | Security group (SSH and Grafana from listed networks only, web egress), instance with IMDSv2 required and a hop limit of 1, encrypted root volume, a separate encrypted data volume for `/var/lib/docker` with daily snapshots, Session Manager role, Elastic IP, cloud-init |
+
+* **The security group is the perimeter.** Docker-published ports bypass UFW but not the
+  security group, and validation refuses SSH or Grafana open to `0.0.0.0/0`.
+* **Containers get no instance credentials:** the metadata service is unreachable from
+  behind Docker's NAT.
+* **Metrics and logs outlive the host.** Replacing the instance moves the data volume and
+  the Elastic IP over; the volume is formatted only when blank, and Docker will not start
+  without it.
+* **No surprise replacements.** The Debian AMI is recorded at creation; newer releases do
+  not replace the host until requested.
+
+37 `terraform test` runs use a mocked AWS provider (no account, credentials or cost),
+including negative tests for refused input; ten deliberate regressions each made them
+fail. tflint (Terraform and AWS rules) and Trivy (MEDIUM and above fail the
+build) run in CI. The configuration has not been applied to a real AWS account from this
+repository: the mocks exercise its logic and the provider's validation, not the AWS APIs.
+
+```bash
+cd terraform/environments/example
+cp backend.hcl.example backend.hcl && cp terraform.tfvars.example terraform.tfvars  # then edit both
+terraform init -backend-config=backend.hcl && terraform apply
+terraform output -raw ansible_inventory   # hosts.yml for ansible/inventories/<name>/
+```
+
 ## Roadmap
 
 1. Container stack, configuration, secrets and CI smoke test **(done)**
@@ -219,7 +254,8 @@ namespaced and would change the test host).
    **(done)**
 3. Ansible roles `linux_hardening` (SSH, UFW, fail2ban) and `observability_stack`, tested
    with Molecule **(done)**
-4. Terraform for an AWS VPS and firewall, tested with `terraform test` and mocked providers
+4. Terraform for an AWS host and its firewall, tested with `terraform test` and a mocked
+   provider, tflint and Trivy **(done)**
 5. Measured fault-injection drills, documentation and release
 
 ## License

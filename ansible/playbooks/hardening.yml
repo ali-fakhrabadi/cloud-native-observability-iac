@@ -2,5 +2,8 @@
 - name: Harden SSH, the firewall, fail2ban, kernel parameters and updates
   hosts: all
   become: true
+  pre_tasks:
+    - name: Wait for first-boot provisioning
+      ansible.builtin.import_tasks: tasks/wait-for-cloud-init.yml
   roles:
     - role: linux_hardening

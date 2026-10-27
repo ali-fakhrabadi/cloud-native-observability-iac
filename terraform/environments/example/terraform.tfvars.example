@@ -1,0 +1,11 @@
+# cp terraform.tfvars.example terraform.tfvars (ignored by git) and replace the values.
+region      = "eu-central-1"
+environment = "lab"
+
+ssh_public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA7Cw5ej7R9CGhpYVY7xfCsA7eAE4JnZtPUT7JzxqZuy operator@example.com"]
+
+# Your public address; 0.0.0.0/0 is refused.
+ssh_ingress_cidrs = ["198.51.100.10/32"]
+
+# Leave empty to reach Grafana through `terraform output -raw grafana_tunnel_command`.
+grafana_ingress_cidrs = []

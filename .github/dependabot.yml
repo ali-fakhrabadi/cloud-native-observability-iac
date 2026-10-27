@@ -1,5 +1,5 @@
-# Weekly update PRs for pinned GitHub Actions and container images. Python tooling is
-# upgraded deliberately with `make lock`.
+# Weekly update PRs for pinned GitHub Actions, container images and the Terraform AWS
+# provider. Python tooling is upgraded deliberately with `make lock`.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -21,6 +21,14 @@ updates:
         patterns: ["grafana/*"]
       prometheus-stack:
         patterns: ["prom/*"]
+    commit-message:
+      prefix: build
+
+  # Provider version and lock file of the example environment.
+  - package-ecosystem: terraform
+    directory: /terraform/environments/example
+    schedule:
+      interval: weekly
     commit-message:
       prefix: build
 

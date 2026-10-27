@@ -34,7 +34,7 @@ jobs:
         run: yamllint --strict .
 
       - name: shellcheck
-        run: shellcheck scripts/*.sh
+        run: shellcheck scripts/*.sh terraform/modules/*/files/*.sh
 
       - name: Dashboards match their generator
         run: python3 tools/dashboards/build.py --check
@@ -61,6 +61,28 @@ jobs:
 
       - name: Alert rule unit tests and Alertmanager routing tests
         run: make test-rules
+
+  terraform:
+    name: "Terraform: fmt, validate, tflint, Trivy and tests"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: terraform fmt and validate, tflint
+        run: make terraform-lint
+        env:
+          # tflint downloads its AWS ruleset from GitHub releases.
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Trivy misconfiguration scan
+        run: make terraform-scan
+
+      # Mocked AWS provider: no account, credentials or cost.
+      - name: terraform test
+        run: make test-terraform
 
   molecule:
     name: "Molecule: ${{ matrix.role }}"

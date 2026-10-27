@@ -14,6 +14,9 @@ crash.log
 terraform.tfvars
 !**/terraform.tfvars.example
 .terraform.tfstate.lock.info
+# Lock files are committed for environments (root modules), not reusable modules.
+terraform/modules/**/.terraform.lock.hcl
+backend.hcl
 
 # Ansible / Molecule
 *.retry

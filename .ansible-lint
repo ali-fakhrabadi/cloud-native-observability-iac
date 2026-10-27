@@ -10,3 +10,4 @@ exclude_paths:
   - tools/
   - terraform/
   - secrets/
+  - .cache/

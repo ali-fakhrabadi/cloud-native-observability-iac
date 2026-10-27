@@ -2,5 +2,8 @@
 - name: Deploy and verify the observability stack
   hosts: monitoring
   become: true
+  pre_tasks:
+    - name: Wait for first-boot provisioning
+      ansible.builtin.import_tasks: tasks/wait-for-cloud-init.yml
   roles:
     - role: observability_stack

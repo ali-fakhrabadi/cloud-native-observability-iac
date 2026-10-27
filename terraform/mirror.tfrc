@@ -1,0 +1,11 @@
+# Terraform CLI configuration for networks that cannot reach registry.terraform.io.
+# On a connected machine, download the providers into a directory:
+#   terraform -chdir=terraform/environments/example providers mirror -platform=linux_amd64 <dir>
+# copy it over and set TERRAFORM_PROVIDER_MIRROR=<dir> in .env; the Makefile mounts it at
+# /mirror. The committed lock file still pins the checksums of what is installed.
+provider_installation {
+  filesystem_mirror {
+    path    = "/mirror"
+    include = ["registry.terraform.io/hashicorp/*"]
+  }
+}

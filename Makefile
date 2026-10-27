@@ -24,7 +24,25 @@ ANSIBLE_ROLES := linux_hardening observability_stack
 LOCK_IMAGE := python:3.12.15-slim-trixie
 UV_VERSION := 0.13.5
 
-.PHONY: help env secrets up down destroy ps logs reload smoke check-dashboards dashboards validate test-rules lint ansible-lint test-ansible tools lock ci
+# Terraform tooling, pinned by digest (checked against Docker Hub and GHCR).
+TERRAFORM_IMAGE := hashicorp/terraform:1.17.0@sha256:4d1b496a256f2989bccdb04b9104a4ede97234b10fba90259e173e905ec4fb58
+TFLINT_IMAGE := ghcr.io/terraform-linters/tflint:v0.65.0@sha256:2788f4d4fc663c0e953b011b01bf443fe5bfce7587ee916e588e6057b85d6359
+TRIVY_IMAGE := ghcr.io/aquasecurity/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+TERRAFORM_MODULES := terraform/modules/network terraform/modules/monitoring_host
+TERRAFORM_ROOTS := terraform/environments/example
+# h1 checksums for these platforms; others verify against the registry's signed zh sums.
+TERRAFORM_LOCK_PLATFORMS := linux_amd64 windows_amd64
+
+# As the calling user, so .terraform/ and the caches in .cache/ can be removed without sudo.
+TF_DOCKER := docker run --rm --volume "$(CURDIR):/work" --workdir /work --user "$$(id -u):$$(id -g)" --env HOME=/tmp
+TERRAFORM := $(TF_DOCKER) --env TF_IN_AUTOMATION=1 --env CHECKPOINT_DISABLE=1 --env TF_PLUGIN_CACHE_DIR=/work/.cache/terraform \
+	--env TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true \
+	$(if $(TERRAFORM_PROVIDER_MIRROR),--volume "$(TERRAFORM_PROVIDER_MIRROR):/mirror:ro" --env TF_CLI_CONFIG_FILE=/work/terraform/mirror.tfrc) \
+	$(TERRAFORM_IMAGE)
+TFLINT := $(TF_DOCKER) --workdir /work/terraform --env TFLINT_PLUGIN_DIR=/work/.cache/tflint --env GITHUB_TOKEN $(TFLINT_IMAGE)
+
+.PHONY: help env secrets up down destroy ps logs reload smoke check-dashboards dashboards validate test-rules lint ansible-lint test-ansible tools lock ci \
+	terraform terraform-init terraform-fmt terraform-lint terraform-scan test-terraform terraform-lock
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_.-]+:.*## / {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -82,7 +100,7 @@ test-rules: ## Unit-test alert rules (promtool) and Alertmanager routing (amtool
 
 lint: tools ## YAML, shell, dashboard and runbook checks
 	$(TOOLS) yamllint --strict .
-	docker run --rm --volume "$(CURDIR):/mnt:ro" --workdir /mnt $(SHELLCHECK_IMAGE) scripts/*.sh
+	docker run --rm --volume "$(CURDIR):/mnt:ro" --workdir /mnt $(SHELLCHECK_IMAGE) scripts/*.sh terraform/modules/*/files/*.sh
 	$(TOOLS) python3 tools/dashboards/build.py --check
 	$(TOOLS) python3 scripts/check_runbooks.py
 
@@ -110,4 +128,40 @@ lock: ## Re-resolve and hash-pin tools/requirements.txt
 		--python-platform x86_64-unknown-linux-gnu --custom-compile-command "make lock" \
 		requirements.in --output-file requirements.txt'
 
-ci: lint validate test-rules ## Static checks that CI runs before the smoke test
+terraform-init: ## Install providers for every Terraform module and environment (no backend)
+	@mkdir -p .cache/terraform
+	@for dir in $(TERRAFORM_MODULES); do \
+		$(TERRAFORM) -chdir=$$dir init -backend=false -input=false -no-color > /dev/null || exit 1; done
+	@# Environments must install exactly what their committed lock file pins.
+	@for dir in $(TERRAFORM_ROOTS); do \
+		$(TERRAFORM) -chdir=$$dir init -backend=false -input=false -no-color -lockfile=readonly > /dev/null || exit 1; done
+
+terraform-fmt: ## Rewrite Terraform files in the canonical format
+	$(TERRAFORM) fmt -recursive terraform
+
+terraform-lint: terraform-init ## terraform fmt -check, terraform validate and tflint
+	$(TERRAFORM) fmt -check -recursive -diff terraform
+	@for dir in $(TERRAFORM_MODULES) $(TERRAFORM_ROOTS); do \
+		printf '%s: ' "$$dir"; $(TERRAFORM) -chdir=$$dir validate -no-color || exit 1; done
+	@mkdir -p .cache/tflint
+	@$(TFLINT) --init > /dev/null
+	$(TFLINT) --recursive --config /work/terraform/.tflint.hcl --format compact
+
+terraform-scan: ## Trivy misconfiguration scan of the example environment and its modules
+	@mkdir -p .cache/trivy
+	$(TF_DOCKER) $(TRIVY_IMAGE) config --quiet --disable-telemetry --skip-version-check \
+		--cache-dir /work/.cache/trivy --exit-code 1 \
+		--severity MEDIUM,HIGH,CRITICAL --tf-vars terraform/environments/example/terraform.tfvars.example \
+		terraform/environments/example
+
+test-terraform: terraform-init ## terraform test with a mocked AWS provider (no account or credentials)
+	@for dir in $(TERRAFORM_MODULES) $(TERRAFORM_ROOTS); do \
+		echo "== $$dir"; $(TERRAFORM) -chdir=$$dir test -no-color || exit 1; done
+
+terraform: terraform-lint terraform-scan test-terraform ## Every Terraform check that CI runs
+
+terraform-lock: ## Re-pin provider checksums of the environments (needs registry.terraform.io)
+	@for dir in $(TERRAFORM_ROOTS); do \
+		$(TERRAFORM) -chdir=$$dir providers lock $(addprefix -platform=,$(TERRAFORM_LOCK_PLATFORMS)) || exit 1; done
+
+ci: lint validate test-rules terraform ## Static checks that CI runs before the smoke test
