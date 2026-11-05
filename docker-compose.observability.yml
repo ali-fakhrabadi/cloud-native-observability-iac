@@ -119,7 +119,7 @@ services:
 
   alloy:
     <<: *hardened
-    image: grafana/alloy:v1.21.2
+    image: grafana/alloy:v1.21.3
     stop_grace_period: 20s
     command:
       - run
@@ -147,7 +147,7 @@ services:
 
   grafana:
     <<: *hardened
-    image: grafana/grafana:13.2.4
+    image: grafana/grafana:13.3.0
     environment:
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
