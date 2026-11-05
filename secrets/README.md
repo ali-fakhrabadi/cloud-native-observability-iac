@@ -11,3 +11,5 @@ this directory except this file is ignored by Git.
 | `node_exporter_web.yml` | Node Exporter web config holding the bcrypt hash of that password |
 | `sentinel_metrics_token` | Bearer token for scraping the Sentinel service (empty if not monitored) |
 | `alertmanager_webhook_url` | Where Alertmanager posts alerts; defaults to the bundled `alert-sink` |
+| `alertmanager_aiops_url` | The AIOps incident engine's ingest URL; `alert-sink` until it is connected |
+| `alertmanager_aiops_token` | The engine's ingest token (a random placeholder until then) |

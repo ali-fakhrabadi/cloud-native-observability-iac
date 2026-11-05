@@ -87,6 +87,21 @@
   no_log: true
   when: observability_stack_webhook_url | length > 0
 
+- name: Store the AIOps incident engine's URL and token
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ observability_stack_dir }}/secrets/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - {name: alertmanager_aiops_url, content: "{{ observability_stack_aiops_url }}"}
+    - {name: alertmanager_aiops_token, content: "{{ observability_stack_aiops_token }}"}
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  when: observability_stack_aiops_url | length > 0 and observability_stack_aiops_token | length > 0
+
 - name: Declare the Sentinel scrape targets
   ansible.builtin.template:
     src: sentinel-targets.yml.j2

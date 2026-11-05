@@ -198,7 +198,9 @@ def notifications(since: datetime) -> list[dict]:
             record = json.loads(line)
         except ValueError:
             continue
-        if record.get("msg") == "notification received":
+        # The AIOps route's notifications land here too until the engine is connected;
+        # the drills time the default receiver.
+        if record.get("msg") == "notification received" and record.get("path") != "/aiops":
             records.append(record)
     return records
 

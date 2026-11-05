@@ -58,6 +58,11 @@ create_password node_exporter_password
 create_empty sentinel_metrics_token "set it to Sentinel's METRICS_AUTH_TOKEN to monitor Sentinel"
 create_default alertmanager_webhook_url "http://alert-sink:9099/alerts" \
     "the bundled alert-sink; replace with a real receiver URL"
+# The AIOps incident engine: alert-sink and a random placeholder token until the
+# engine's ingest URL and token replace them (README, "AIOps incident engine").
+create_default alertmanager_aiops_url "http://alert-sink:9099/aiops" \
+    "alert-sink until the AIOps engine is connected"
+create_password alertmanager_aiops_token
 
 # Node Exporter only accepts bcrypt hashes in its web config.
 web_config="$DIR/node_exporter_web.yml"

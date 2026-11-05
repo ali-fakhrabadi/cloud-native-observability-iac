@@ -65,7 +65,7 @@ services:
     volumes:
       - ./config/alertmanager:/etc/alertmanager:ro
       - alertmanager-data:/alertmanager
-    secrets: [alertmanager_webhook_url]
+    secrets: [alertmanager_webhook_url, alertmanager_aiops_url, alertmanager_aiops_token]
     ports: ["${ALERTMANAGER_BIND_ADDRESS:-127.0.0.1}:${ALERTMANAGER_HTTP_PORT:-9093}:9093"]
     networks: [backend, egress]
     healthcheck:
@@ -302,3 +302,5 @@ secrets:
   node_exporter_web_config: {file: ./secrets/node_exporter_web.yml}
   sentinel_metrics_token: {file: ./secrets/sentinel_metrics_token}
   alertmanager_webhook_url: {file: ./secrets/alertmanager_webhook_url}
+  alertmanager_aiops_url: {file: ./secrets/alertmanager_aiops_url}
+  alertmanager_aiops_token: {file: ./secrets/alertmanager_aiops_token}

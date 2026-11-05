@@ -112,8 +112,9 @@ validate: ## Validate Compose, Prometheus, Alertmanager, Loki and Alloy configur
 test-rules: ## Unit-test alert rules (promtool) and Alertmanager routing (amtool)
 	$(CHECK) --entrypoint promtool $(PROMETHEUS_IMAGE) test rules $$(cd config && ls prometheus/tests/*.test.yml | sed "s|^|/config/|")
 	@$(AMTOOL_ROUTE) --verify.receivers=heartbeat alertname=Watchdog severity=none
-	@$(AMTOOL_ROUTE) --verify.receivers=default alertname=TargetDown severity=critical
-	@$(AMTOOL_ROUTE) --verify.receivers=default alertname=HostHighCpuUsage severity=warning
+	@$(AMTOOL_ROUTE) --verify.receivers=aiops,default alertname=TargetDown severity=critical
+	@$(AMTOOL_ROUTE) --verify.receivers=aiops,default alertname=HostHighCpuUsage severity=warning
+	@$(AMTOOL_ROUTE) --verify.receivers=default alertname=Example severity=info
 	@echo "routing tests passed"
 
 lint: tools ## YAML, shell, dashboard and runbook checks

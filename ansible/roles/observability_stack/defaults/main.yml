@@ -47,6 +47,10 @@ observability_stack_sentinel_targets: []
 observability_stack_sentinel_token: ""
 # Where Alertmanager sends notifications; empty keeps the bundled alert-sink.
 observability_stack_webhook_url: ""
+# The AIOps incident engine's ingest URL and token (critical and warning alerts);
+# empty keeps them pointed at alert-sink.
+observability_stack_aiops_url: ""
+observability_stack_aiops_token: ""
 
 # Fail the deployment unless the stack passes its end-to-end smoke test.
 observability_stack_smoke_test: true

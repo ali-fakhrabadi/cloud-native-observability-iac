@@ -90,6 +90,27 @@ Design choices that keep alerts actionable:
   5 minutes; a receiver that stops getting it knows alerting is broken.
 * **No hardcoded receivers.** The webhook URL is a Docker secret
   (`secrets/alertmanager_webhook_url`), by default the bundled `alert-sink`.
+* **AI triage, optional.** Critical and warning alerts also go to the
+  [AIOps incident engine](https://github.com/ali-fakhrabadi/aiops-n8n-incident-engine)
+  (an extra route with `continue: true`, so the routes above are unchanged): it reads the
+  alert's logs from this stack's Loki, has an LLM suggest the probable cause and
+  read-only checks, and n8n routes the result to a chat by severity. Until the engine is
+  connected, that route ends in `alert-sink` too.
+
+### Connecting the AIOps incident engine
+
+With both stacks on one host, the engine's `docker-compose.observability.yml` overlay
+joins its API (as `aiops-api`) and its worker to this stack's internal network. Then
+point the `aiops` receiver at the API, with the engine's ingest token as a file:
+
+```bash
+cp ../aiops-n8n-incident-engine/secrets/ingest_token secrets/alertmanager_aiops_token
+printf '%s' http://aiops-api:8000/api/v1/alerts/alertmanager > secrets/alertmanager_aiops_url
+docker compose -f docker-compose.observability.yml restart alertmanager
+```
+
+If the engine stops answering, the *notifications failing* alert says so; the other
+receivers are not affected.
 
 ## Logs
 
