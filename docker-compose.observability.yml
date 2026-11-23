@@ -28,7 +28,7 @@ x-hardened: &hardened
 services:
   prometheus:
     <<: *hardened
-    image: prom/prometheus:v3.15.1
+    image: prom/prometheus:v3.16.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -55,7 +55,7 @@ services:
 
   alertmanager:
     <<: *hardened
-    image: prom/alertmanager:v0.34.1
+    image: prom/alertmanager:v0.35.0
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
@@ -189,7 +189,7 @@ services:
 
   node-exporter:
     <<: *hardened
-    image: prom/node-exporter:v1.12.1
+    image: prom/node-exporter:v1.13.1
     command:
       - --path.rootfs=/host
       - --web.listen-address=${NODE_EXPORTER_LISTEN_ADDRESS:-0.0.0.0:9100}
