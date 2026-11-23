@@ -207,7 +207,7 @@ services:
 
   cadvisor:
     <<: *hardened
-    image: ghcr.io/google/cadvisor:v0.60.6
+    image: ghcr.io/google/cadvisor:v0.61.1
     command:
       - --docker=tcp://docker-socket-proxy:2375
       - --docker_only=true
